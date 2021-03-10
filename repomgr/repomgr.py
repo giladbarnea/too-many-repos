@@ -281,10 +281,10 @@ def main(ctx, parent_path: Path, glob: str, exclude_these: tuple, gitdir_size_li
         usage(ctx, parent_path)
         sys.exit()
     
-    # * merge .git_status_subdirs_ignore files, gists_re into exclude_these
+    # * merge .repomgrignore files, gists_re into exclude_these
     exclude_set = set(exclude_these)
     for root in (Path.home(), parent_path):
-        ignorefile = root / f".{THIS_FILE_STEM}_ignore"
+        ignorefile = root / f".{THIS_FILE_STEM}ignore"
         try:
             # ~/.git_status_subdirs.py
             exclude_set |= set(map(str.strip, ignorefile.open().readlines()))
@@ -419,8 +419,8 @@ def main(ctx, parent_path: Path, glob: str, exclude_these: tuple, gitdir_size_li
 
 def usage(ctx, parent_path):
     helpstr = main.get_help(ctx)
-    helpstr += f"""\n\n.{THIS_FILE_STEM}_ignore Files:
-    Honors .{THIS_FILE_STEM}_ignore files in {parent_path} and {Path.home()} (if exist).
+    helpstr += f"""\n\n.{THIS_FILE_STEM}ignore Files:
+    Honors .{THIS_FILE_STEM}ignore files in {parent_path} and {Path.home()} (if exist).
     Each line is processed as if passed via EXCLUDE option.
     """
     
