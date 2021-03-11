@@ -13,7 +13,6 @@ from rich.console import Console
 from rich.theme import Theme
 from rich import print
 from random import randint
-from dateutil.parser import parse as parsedate
 from datetime import timedelta
 from datetime import datetime as dt
 import re
@@ -127,34 +126,38 @@ def diff_gist(entry, gist_id, id2props, live, verbose, quiet):
     if diff:
         gist_date = id2props[gist_id].get('date')
         prompt = f"[warn][b]{entry.absolute()}[/b]: file and gist {gist_id} ('{gist_description[:32]}') are different"
-        
-        if gist_date.endswith('Z'):
-            gist_date = parsedate(gist_date[:-1])
+        try:
+            from dateutil.parser import parse as parsedate
+        except ModuleNotFoundError as e:
+            pass
         else:
-            gist_date = parsedate(gist_date)
-        
-        file_mdate = dt.fromtimestamp(entry.stat().st_mtime)
-        if file_mdate > gist_date:
-            local_is_newer = True
-            td: timedelta = file_mdate - gist_date
-        else:
-            local_is_newer = False
-            td: timedelta = gist_date - file_mdate
-        
-        
-        if td.seconds > 5:
-            if td.days:
-                time_diff = f'{td.days} days'
-            elif td.seconds >= 3600:
-                time_diff = f'{td.seconds // 3600} hours and {(td.seconds % 3600) // 60} minutes'
-            elif td.seconds >= 60:
-                time_diff = f'{(td.seconds % 3600) // 60} minutes and {td.seconds} seconds'
+            if gist_date.endswith('Z'):
+                gist_date = parsedate(gist_date[:-1])
             else:
-                time_diff = f'{td.seconds} seconds'
+                gist_date = parsedate(gist_date)
             
-            prompt += f"; [b]{'local' if local_is_newer else 'gist'}[/b] is newer by {time_diff}[/]"
-        else:
-            prompt += f"(less than 5 seconds apart)[/]"
+            file_mdate = dt.fromtimestamp(entry.stat().st_mtime)
+            if file_mdate > gist_date:
+                local_is_newer = True
+                td: timedelta = file_mdate - gist_date
+            else:
+                local_is_newer = False
+                td: timedelta = gist_date - file_mdate
+            
+            
+            if td.seconds > 5:
+                if td.days:
+                    time_diff = f'{td.days} days'
+                elif td.seconds >= 3600:
+                    time_diff = f'{td.seconds // 3600} hours and {(td.seconds % 3600) // 60} minutes'
+                elif td.seconds >= 60:
+                    time_diff = f'{(td.seconds % 3600) // 60} minutes and {td.seconds} seconds'
+                else:
+                    time_diff = f'{td.seconds} seconds'
+                
+                prompt += f"; [b]{'local' if local_is_newer else 'gist'}[/b] is newer by {time_diff}[/]"
+            else:
+                prompt += f"(less than 5 seconds apart)[/]"
         log(prompt)
         if quiet:
             log("[prompt]Would've prompted show diff, but quiet=True")
@@ -233,7 +236,7 @@ def get_remotes(verbose: int) -> Tuple[str, str, str]:
 
 
 @click.command(context_settings=dict(show_default=True))
-@click.argument('parent_path', required=True,
+@click.argument('parent_path', required=False, default=Path.cwd(),
                 type=click.Path(exists=True, dir_okay=True, readable=True))
 @click.option('-g', '--glob', metavar='GLOB',
               required=False, default='*',
@@ -281,12 +284,11 @@ def main(ctx, parent_path: Path, glob: str, exclude_these: tuple, gitdir_size_li
         usage(ctx, parent_path)
         sys.exit()
     
-    # * merge .repomgrignore files, gists_re into exclude_these
+    # * merge .tmrignore files, gists_re into exclude_these
     exclude_set = set(exclude_these)
     for root in (Path.home(), parent_path):
-        ignorefile = root / f".{THIS_FILE_STEM}ignore"
+        ignorefile = root / f".tmrignore"
         try:
-            # ~/.git_status_subdirs.py
             exclude_set |= set(map(str.strip, ignorefile.open().readlines()))
         except FileNotFoundError as fnfe:
             if verbose >= 2:
@@ -419,8 +421,8 @@ def main(ctx, parent_path: Path, glob: str, exclude_these: tuple, gitdir_size_li
 
 def usage(ctx, parent_path):
     helpstr = main.get_help(ctx)
-    helpstr += f"""\n\n.{THIS_FILE_STEM}ignore Files:
-    Honors .{THIS_FILE_STEM}ignore files in {parent_path} and {Path.home()} (if exist).
+    helpstr += f"""\n\n.tmrignore Files:
+    Honors .tmrignore files in {parent_path} and {Path.home()} (if exist).
     Each line is processed as if passed via EXCLUDE option.
     """
     
