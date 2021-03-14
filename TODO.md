@@ -3,9 +3,29 @@
 - [ ] support for #comments
 
 # features
+## code
 - [ ] `--difftool code`
-- [ ] option to edit gist if diff exists
+
+## .tmrignore
+- [ ] support for env vars e.g. $HOME/.gitignore
+
+## .tmrrc
+- [ ] `diff` rules
+  - [ ] ignore diff in line order (think .ignore files)
+  - [ ] ignore comments
+  - [ ] `diff gist` rules
+    - [ ] "count as same when:"
+      - [ ] local is subset
+
+
+
+# improvements
+## gists
+- [ ] option to edit gist if diff exists or "upload" local (after showing diff) | p2
+
+## repos
 - [ ] before pull, suggest to show diff
+- [ ] after pull from upstream, suggest to git push to origin
 - [ ] if can be safely `gacp`ed, suggest to do it
   - [ ] when's safe? 
         Your branch is up to date with 'origin/master'
