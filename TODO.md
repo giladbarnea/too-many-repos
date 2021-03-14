@@ -11,6 +11,7 @@
         Your branch is up to date with 'origin/master'
         Changes not staged for commit:
         no changes added to commit (use "git add" and/or "git commit -a")
+- [ ] bold `ahead` in "but your branch is ahead of upstream by 3 commits"
 
 # bugs
 - [ ] gist tmp file includes gist description
