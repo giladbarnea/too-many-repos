@@ -14,4 +14,5 @@
 - [ ] bold `ahead` in "but your branch is ahead of upstream by 3 commits"
 
 # bugs
+- [ ] when a gist includes several files (like micro settings) | p1
 - [ ] gist tmp file includes gist description
