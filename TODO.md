@@ -36,3 +36,6 @@
 # Bugs
 - [ ] when a gist includes several files (like micro settings) | p1
 - [ ] gist tmp file includes gist description
+
+# Thoughts
+- If upstream != origin, and tracking == origin/*, warn? warning rules in .tmrrc?
