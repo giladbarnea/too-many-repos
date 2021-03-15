@@ -1,15 +1,16 @@
-# .tmrrc
-# .tmrignore
+# features
+## Logic
+- [ ] `--difftool code`
+- [ ] `tmr ignore`
+  - [ ] `tmr ignore <path>`
+  - [ ] `tmr ignore <string>`
+  - [ ] `tmr ignore show`
+
+## `.tmrignore`
+- [ ] support for env vars e.g. $HOME/.gitignore
 - [ ] support for #comments
 
-# features
-## code
-- [ ] `--difftool code`
-
-## .tmrignore
-- [ ] support for env vars e.g. $HOME/.gitignore
-
-## .tmrrc
+## `.tmrrc`
 - [ ] `diff` rules
   - [ ] ignore diff in line order (think .ignore files)
   - [ ] ignore comments
@@ -18,12 +19,11 @@
       - [ ] local is subset
 
 
-
-# improvements
-## gists
+# Improvements
+## Gists
 - [ ] option to edit gist if diff exists or "upload" local (after showing diff) | p2
 
-## repos
+## Repos
 - [ ] before pull, suggest to show diff
 - [ ] after pull from upstream, suggest to git push to origin
 - [ ] if can be safely `gacp`ed, suggest to do it
@@ -33,6 +33,6 @@
         no changes added to commit (use "git add" and/or "git commit -a")
 - [ ] bold `ahead` in "but your branch is ahead of upstream by 3 commits"
 
-# bugs
+# Bugs
 - [ ] when a gist includes several files (like micro settings) | p1
 - [ ] gist tmp file includes gist description
