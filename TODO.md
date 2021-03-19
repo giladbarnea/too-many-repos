@@ -1,4 +1,4 @@
-# features
+# Features
 ## Logic
 - [ ] `--difftool code`
 - [ ] `tmr ignore`
@@ -7,17 +7,16 @@
   - [ ] `tmr ignore show`
 
 ## `.tmrignore`
-- [ ] support for env vars e.g. $HOME/.gitignore
 - [ ] support for #comments
+- [ ] support for env vars e.g. $HOME/.gitignore
 
 ## `.tmrrc`
 - [ ] `diff` rules
-  - [ ] ignore diff in line order (think .ignore files)
+  - [ ] ignore difference in line order (for e.g .ignore files)
   - [ ] ignore comments
   - [ ] `diff gist` rules
     - [ ] "count as same when:"
       - [ ] local is subset
-
 
 # Improvements
 ## Gists
@@ -39,3 +38,5 @@
 
 # Thoughts
 - If upstream != origin, and tracking == origin/*, warn? warning rules in .tmrrc?
+- "Your branch is based on 'origin/master', but the upstream is gone.
+  (use "git branch --unset-upstream" to fixup)" (`attrs`)
