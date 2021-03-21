@@ -7,13 +7,14 @@
   - [ ] `tmr ignore show`
 
 ## `.tmrignore`
-- [ ] support for #comments
 - [ ] support for env vars e.g. $HOME/.gitignore
+- [ ] support for #comments
+- [ ] support for ignoring by repo url
 
 ## `.tmrrc`
 - [ ] `diff` rules
-  - [ ] ignore difference in line order (for e.g .ignore files)
-  - [ ] ignore comments
+  - [ ] ignore difference in line order (think .ignore files)
+  - [ ] ignore #comments
   - [ ] `diff gist` rules
     - [ ] "count as same when:"
       - [ ] local is subset
