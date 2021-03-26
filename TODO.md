@@ -36,8 +36,11 @@
 - [ ] bold `ahead` in "but your branch is ahead of upstream by 3 commits"
 
 # Bugs
+## Gists
 - [ ] when a gist includes several files (like micro settings) | p1
 - [ ] gist tmp file includes gist description
+- [ ] put the newer (gist or local) on the right (green) | p2
+## Repos 
 
 # Thoughts
 - If upstream != origin, and tracking == origin/*, warn? warning rules in .tmrrc?
