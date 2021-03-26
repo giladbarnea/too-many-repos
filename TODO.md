@@ -26,7 +26,9 @@
 - [ ] option to edit gist if diff exists or "upload" local (after showing diff) | p2
 
 ## Repos
-- [ ] before pull, suggest to show diff
+- [ ] before pull
+  - [ ] suggest to show diff
+  - [ ] show upstream name if exists
 - [ ] after pull from upstream, suggest to git push to origin
 - [ ] if can be safely `gacp`ed, suggest to do it
   - [ ] when's safe? 
