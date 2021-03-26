@@ -5,6 +5,8 @@
   - [ ] `tmr ignore <path>`
   - [ ] `tmr ignore <string>`
   - [ ] `tmr ignore show`
+- [ ] `tmr -u`    # don't honor .tmrignore file
+  - [ ] `tmr -u <path / string>`    # don't ignore specific entry
 
 ## `.tmrignore`
 - [ ] support for env vars e.g. $HOME/.gitignore
