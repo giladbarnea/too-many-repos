@@ -9,18 +9,18 @@ import os
 from rich.live import Live
 from rich.spinner import Spinner
 from rich.prompt import Confirm
-from rich.console import Console
-from rich.theme import Theme
+
 from rich import print
 from random import randint
 from datetime import timedelta
 from datetime import datetime as dt
 import re
-from typing import Union, List, Set, Tuple
-console=Console(theme=Theme({'#':'dim', 'warn':'yellow', 'good':'green', 'prompt':'b bright_magenta'}))
-log=console.print
+from typing import Tuple
+from too_many_repos.tmrignore import TmrIgnore
+from too_many_repos.tmrconfig import TmrConfig
+from too_many_repos.log import logger
 THIS_FILE_STEM = Path(__file__).stem
-
+config = TmrConfig()
 
 def is_regexlike(val: str) -> bool:
     """Chars that can't be a file path and used often in regexps"""
@@ -36,7 +36,7 @@ def run(cmd: str, *args, **kwargs) -> str:
         kwargs.update(stdout=sp.PIPE)
     try:
         if kwargs.pop('verbose') is not None:
-            log(f'[#]Running[/]: [rgb(125,125,125) i on rgb(25,25,25)]{cmd}[/]')
+            logger.debug(f'[#]Running[/]: [rgb(125,125,125) i on rgb(25,25,25)]{cmd}[/]')
     except KeyError:
         pass
     stdout = sp.run(shlex.split(cmd), *args, **kwargs).stdout
@@ -45,7 +45,7 @@ def run(cmd: str, *args, **kwargs) -> str:
     return ""
 
 
-def should_skip_path(path: Path, exclude_these: Set[Union[re.Pattern, str]]) -> bool:
+def should_skip_path(path: Path, exclude_these: TmrIgnore) -> bool:
     for exclude in exclude_these:
         if isinstance(exclude, re.Pattern):
             if exclude.search(str(path)):
@@ -70,7 +70,7 @@ def should_skip_path(path: Path, exclude_these: Set[Union[re.Pattern, str]]) -> 
     return False
 
 
-def should_skip_gist_file(exclude_these: Set[Union[re.Pattern, str]], gist_file: str) -> bool:
+def should_skip_gist_file(exclude_these: TmrIgnore, gist_file: str) -> bool:
     for exclude in exclude_these:
         if isinstance(exclude, re.Pattern):
             if exclude.search(gist_file):
@@ -82,7 +82,7 @@ def should_skip_gist_file(exclude_these: Set[Union[re.Pattern, str]], gist_file:
     return False
 
 
-def should_skip_gist(exclude_these: Set[Union[re.Pattern, str]], gist_id: str, gist_description: str) -> bool:
+def should_skip_gist(exclude_these: TmrIgnore, gist_id: str, gist_description: str) -> bool:
     for exclude in exclude_these:
         if isinstance(exclude, re.Pattern):
             if exclude.search(gist_id) or exclude.search(gist_description):
@@ -96,7 +96,7 @@ def should_skip_gist(exclude_these: Set[Union[re.Pattern, str]], gist_id: str, g
 
 def diff_gist(entry, gist_id, id2props, live, verbose, quiet):
     if verbose:
-        log(f'[#]diffing {entry}...')
+        logger.debug(f'[#]diffing {entry}...')
     tmp_stripped_gist_file_path = f'/tmp/{randint(0, 10)}{randint(0, 10)}{randint(0, 10)}{randint(0, 10)}{randint(0, 10)}'
     gist_content = run(f"gh gist view {gist_id}", verbose=verbose).splitlines()
     gist_description = id2props[gist_id].get('description', '')
@@ -158,9 +158,9 @@ def diff_gist(entry, gist_id, id2props, live, verbose, quiet):
                 prompt += f"; [b]{'local' if local_is_newer else 'gist'}[/b] is newer by {time_diff}[/]"
             else:
                 prompt += f"(less than 5 seconds apart)[/]"
-        log(prompt)
+        logger.info(prompt)
         if quiet:
-            log("[prompt]Would've prompted show diff, but quiet=True")
+            logger.info("[prompt]Would've prompted show diff, but quiet=True")
         else:
             live.stop()
             if Confirm.ask('[prompt]show diff?[/]'):
@@ -171,12 +171,12 @@ def diff_gist(entry, gist_id, id2props, live, verbose, quiet):
                 os.system(f'diff -ZuB --strip-trailing-cr "{tmp_stripped_gist_file_path}" "{entry.absolute()}" | delta')
             live.start()
     else:
-        log(f"[good][b]{entry.absolute()}[/b]: file and gist {gist_id[:16]} ('{gist_description[:32]}') file are identical[/]")
+        logger.info(f"[good][b]{entry.absolute()}[/b]: file and gist {gist_id[:16]} ('{gist_description[:32]}') file are identical[/]")
 
 
-def get_gists_to_check(exclude_these: Set[Union[re.Pattern, str]], verbose: int):
+def get_gists_to_check(exclude_these: TmrIgnore, verbose: int):
     if verbose:
-        log('[#]Getting gists...[/]')
+        logger.debug('[#]Getting gists...[/]')
     skip_gist_files = set()
     gists_list = run('gh gist list -L 100', verbose=verbose).splitlines()  # not safe
     gistid2gist_view_proc = dict()
@@ -187,11 +187,11 @@ def get_gists_to_check(exclude_these: Set[Union[re.Pattern, str]], verbose: int)
         gist_id, description, filecount, perm, date = gist_str.split('\t')
         if should_skip_gist(exclude_these, gist_id, description):
             if verbose:
-                log(f"[warn]skipping [b]{gist_id} ('{description[:32]}')[/b]: excluded[/]")
+                logger.warning(f"skipping [b]{gist_id} ('{description[:32]}')[/b]: excluded")
             continue
         gistid2gistprop[gist_id] = dict(description=description, filecount=filecount, perm=perm, date=date)
         if verbose:
-            log(f"[#]Getting files of {gist_id[:8]} ('{description[:32]}')...[/]")
+            logger.debug(f"[#]Getting files of {gist_id[:8]} ('{description[:32]}')...[/]")
         gist_view_proc = sp.Popen(shlex.split(f'gh gist view {gist_id} --files'), stdout=sp.PIPE, stderr=sp.PIPE)
         gistid2gist_view_proc[gist_id] = gist_view_proc
     
@@ -207,7 +207,7 @@ def get_gists_to_check(exclude_these: Set[Union[re.Pattern, str]], verbose: int)
                 # so not only do we not set file2id[gist_file] = id, but we also mark gist_file to be skipped
                 description = gist_props.get('description')
                 existing_id = gistfile2gistid[gist_file]
-                log((f"[warn]skipping [b]{gist_file}: '{gistid2gistprop[existing_id]['description'][:64]}' ({existing_id[:8]})[/b] "
+                logger.warning((f"skipping [b]{gist_file}: '{gistid2gistprop[existing_id]['description'][:64]}' ({existing_id[:8]})[/b] "
                        f"because same file name: [b]'{description[:64]}' ({gist_id[:8]})[/]"
                        ))
                 
@@ -216,14 +216,14 @@ def get_gists_to_check(exclude_these: Set[Union[re.Pattern, str]], verbose: int)
                 # don't add gist_file to gistfile2gistid
                 if verbose:
                     description = gist_props.get('description')
-                    log(f"[warn]gist file [b]'{gist_file}'[/b] of {gist_id} ('{description[:32]}'): skipping; excluded[/]")
+                    logger.warning(f"gist file [b]'{gist_file}'[/b] of {gist_id} ('{description[:32]}'): skipping; excluded")
             else:
                 gistfile2gistid[gist_file] = gist_id
     # remove any entries that had duplicates
     for gist_file in skip_gist_files:
         gistfile2gistid.pop(gist_file)
     if verbose >= 2:
-        log('file2id: ', gistfile2gistid, 'id2props: ', gistid2gistprop)
+        logger.debug('file2id: ', gistfile2gistid, 'id2props: ', gistid2gistprop)
     return gistfile2gistid, gistid2gistprop
 
 
@@ -284,6 +284,7 @@ def main(ctx, parent_path: Path, glob: str, exclude_these: tuple, gitdir_size_li
         usage(ctx, parent_path)
         sys.exit()
     
+    ignore_these = TmrIgnore()
     # * merge .tmrignore files, gists_re into exclude_these
     exclude_set = set(exclude_these)
     for root in (Path.home(), parent_path):
@@ -292,14 +293,14 @@ def main(ctx, parent_path: Path, glob: str, exclude_these: tuple, gitdir_size_li
             exclude_set |= set(map(str.strip, ignorefile.open().readlines()))
         except FileNotFoundError as fnfe:
             if verbose >= 2:
-                log(f"[warn]FileNotFoundError when handling {ignorefile}: {', '.join((map(str, fnfe.args)))}[/]")
+                logger.warning(f"FileNotFoundError when handling {ignorefile}: {', '.join((map(str, fnfe.args)))}")
         except Exception as e:
-            log(f"[warn]{e.__class__} when handling {ignorefile}: {', '.join((map(str, e.args)))}[/]")
+            logger.warning(f"{e.__class__} when handling {ignorefile}: {', '.join((map(str, e.args)))}")
         else:
             if verbose:
-                log(f"[good]found {ignorefile}[/]")
+                logger.info(f"[good]found {ignorefile}[/]")
     
-    exclude_these: Set[Union[re.Pattern, str]] = set()
+    exclude_these: TmrIgnore = set()
     for exclude in exclude_set:
         if is_regexlike(exclude):
             exclude_these.add(re.compile(exclude, re.DOTALL))
@@ -307,7 +308,7 @@ def main(ctx, parent_path: Path, glob: str, exclude_these: tuple, gitdir_size_li
             exclude_these.add(exclude)
     
     if verbose:
-        log(f"{parent_path = }, {glob = },\n{exclude_these = },\n{gitdir_size_limit = }, {verbose = },\n{should_check_gists = }, {quiet = }", width=120)
+        logger.debug(f"{parent_path = }, {glob = },\n{exclude_these = },\n{gitdir_size_limit = }, {verbose = },\n{should_check_gists = }, {quiet = }")
     
     # * main loop
     with Live(Spinner('dots9'), refresh_per_second=16) as live:
@@ -321,10 +322,10 @@ def main(ctx, parent_path: Path, glob: str, exclude_these: tuple, gitdir_size_li
             
             if should_skip_path(entry, exclude_these):
                 if verbose >= 2:  # keep >=2 because prints for all subdirs of excluded
-                    log(f"[warn][b]{entry}[/b]: skipping; excluded[/]")
+                    logger.warning(f"[b]{entry}[/b]: skipping; excluded")
                 continue
             if verbose >= 2:
-                log(f'[#]in {entry}...[/]')
+                logger.debug(f'[#]in {entry}...[/]')
             if should_check_gists and (gist_id := gistfile2gistid.get(entry.name)) and entry.is_file():
                 diff_gist(entry, gist_id, gistid2gistprop, live, verbose, quiet)
             
@@ -339,14 +340,14 @@ def main(ctx, parent_path: Path, glob: str, exclude_these: tuple, gitdir_size_li
                         continue
                 except PermissionError:
                     if verbose:
-                        log(f"[warn][b]{directory}[/b]: skipping; PermissionError[/]")
+                        logger.warning(f"[b]{directory}[/b]: skipping; PermissionError[/]")
                     continue
                 
                 # .git dir size
                 gitdir_size_mb = sum(map(lambda p: p.stat().st_size, gitdir.glob('**/*'))) / 1000000
                 if gitdir_size_mb >= gitdir_size_limit:
                     if verbose:
-                        log(f"[warn][b]{directory}[/b]: skipping; .git dir is {int(gitdir_size_mb)}MB[/]")
+                        logger.warning(f"[b]{directory}[/b]: skipping; .git dir is {int(gitdir_size_mb)}MB")
                     continue
                 
                 os.chdir(directory)
@@ -375,7 +376,7 @@ def main(ctx, parent_path: Path, glob: str, exclude_these: tuple, gitdir_size_li
                         msg += f' [b]tracking[/b]: [i]{tracking}[/i]'
                     
                     msg += '[/]'
-                    log(msg)
+                    logger.info(msg)
                     # if 'ahead' in status:
                     #     # TODO: in this case there's nothing to push; origin is up to date, upstream isn't
                     #     live.stop()
@@ -391,7 +392,7 @@ def main(ctx, parent_path: Path, glob: str, exclude_these: tuple, gitdir_size_li
                     continue
                     
                 # either something modified, or we're behind/ahead, or mine and upstream diverged
-                log(f'\n[b bright_white u]{directory.absolute()}[/]\n')
+                logger.log(0, f'\n[b bright_white u]{directory.absolute()}[/]\n')
                 os.system(f'git status')
                 print()
                 
@@ -402,18 +403,18 @@ def main(ctx, parent_path: Path, glob: str, exclude_these: tuple, gitdir_size_li
                 if 'ahead' not in status and ('behind' in status or 'have diverged' in status):  # nothing modified, can be pulled
                     # TODO: is it always true that no local modified files here?
                     if quiet:
-                        log("[prompt]Would've prompted git pull, but quiet=True")
+                        logger.info("[prompt]Would've prompted git pull, but quiet=True")
                     else:
                         live.stop()
                         
                         if Confirm.ask('[prompt]git pull?[/]'):
                             live.start()
-                            log('pulling...')
+                            logger.info('pulling...')
                             os.system('git pull')
                             print()
                         else:
                             live.start()
-                            log('[warn]not pulling[/]')
+                            logger.warning('not pulling')
                 
                 # * end of main loop
                 os.chdir(parent_path)
