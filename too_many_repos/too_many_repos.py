@@ -260,8 +260,17 @@ def get_remotes(verbose: int) -> Tuple[str, str, str]:
 @click.option('-q', '--quiet', is_flag=True)
 @click.option('--gists', 'should_check_gists', is_flag=True, help='Also look for local files that match files in own gists and diff them')
 @click.pass_context
-def main(ctx, parent_path: Path, glob: str, exclude_these: tuple, gitdir_size_limit: int, verbose: int, help: bool, should_check_gists: bool = False, quiet: bool = False):
-    """Runs `git fetch --all --prune --jobs=10; git status` in each subdir of PARENT_PATH that:
+def main(ctx,
+         parent_path: Path,
+         glob: str,
+         exclude_these: tuple,
+         gitdir_size_limit: int,
+         verbose: int,
+         help: bool,
+         should_check_gists: bool = False,
+         quiet: bool = False):
+    """
+    Runs `git fetch --all --prune --jobs=10; git status` in each subdir of PARENT_PATH that:
     
     \b
     1. is a git repo;
