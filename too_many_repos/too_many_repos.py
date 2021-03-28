@@ -94,11 +94,11 @@ def should_skip_gist(exclude_these: TmrIgnore, gist_id: str, gist_description: s
     return False
 
 
-def diff_gist(entry, gist_id, id2props, live, verbose, quiet):
-    if verbose:
+def diff_gist(entry, gist_id, id2props, live, quiet):
+    if config.verbose:
         logger.debug(f'[#]diffing {entry}...')
     tmp_stripped_gist_file_path = f'/tmp/{randint(0, 10)}{randint(0, 10)}{randint(0, 10)}{randint(0, 10)}{randint(0, 10)}'
-    gist_content = run(f"gh gist view {gist_id}", verbose=verbose).splitlines()
+    gist_content = run(f"gh gist view {gist_id}", verbose=config.verbose).splitlines()
     gist_description = id2props[gist_id].get('description', '')
     
     stripped_gist_content = list(filter(bool, map(str.strip, gist_content)))
@@ -255,7 +255,6 @@ def get_remotes(verbose: int) -> Tuple[str, str, str]:
                              ))
 @click.option('--gitdir-size-limit', required=False, default=100, metavar='SIZE_MB',
               help='A dir is skipped if its .git dir size >= SIZE_MB')
-@click.option('-v', '--verbose', count=True, type=int, metavar="VERBOSITY", help="Verbosity level")
 @click.option('-h', '--help', is_flag=True)
 @click.option('-q', '--quiet', is_flag=True)
 @click.option('--gists', 'should_check_gists', is_flag=True, help='Also look for local files that match files in own gists and diff them')
@@ -265,7 +264,6 @@ def main(ctx,
          glob: str,
          exclude_these: tuple,
          gitdir_size_limit: int,
-         verbose: int,
          help: bool,
          should_check_gists: bool = False,
          quiet: bool = False):
@@ -301,12 +299,12 @@ def main(ctx,
         try:
             exclude_set |= set(map(str.strip, ignorefile.open().readlines()))
         except FileNotFoundError as fnfe:
-            if verbose >= 2:
+            if config.verbose >= 2:
                 logger.warning(f"FileNotFoundError when handling {ignorefile}: {', '.join((map(str, fnfe.args)))}")
         except Exception as e:
             logger.warning(f"{e.__class__} when handling {ignorefile}: {', '.join((map(str, e.args)))}")
         else:
-            if verbose:
+            if config.verbose:
                 logger.info(f"[good]found {ignorefile}[/]")
     
     exclude_these: TmrIgnore = set()
@@ -316,27 +314,27 @@ def main(ctx,
         else:
             exclude_these.add(exclude)
     
-    if verbose:
-        logger.debug(f"{parent_path = }, {glob = },\n{exclude_these = },\n{gitdir_size_limit = }, {verbose = },\n{should_check_gists = }, {quiet = }")
+    if config.verbose:
+        logger.debug(f"{parent_path = }, {glob = },\n{exclude_these = },\n{gitdir_size_limit = }, {config.verbose = },\n{should_check_gists = }, {quiet = }")
     
     # * main loop
     with Live(Spinner('dots9'), refresh_per_second=16) as live:
         # * parse gists
         if should_check_gists:
-            gistfile2gistid, gistid2gistprop = get_gists_to_check(exclude_these, verbose)
+            gistfile2gistid, gistid2gistprop = get_gists_to_check(exclude_these, config.verbose)
         
         print()
         
         for entry in parent_path.glob(glob):
             
             if should_skip_path(entry, exclude_these):
-                if verbose >= 2:  # keep >=2 because prints for all subdirs of excluded
+                if config.verbose >= 2:  # keep >=2 because prints for all subdirs of excluded
                     logger.warning(f"[b]{entry}[/b]: skipping; excluded")
                 continue
-            if verbose >= 2:
+            if config.verbose >= 2:
                 logger.debug(f'[#]in {entry}...[/]')
             if should_check_gists and (gist_id := gistfile2gistid.get(entry.name)) and entry.is_file():
-                diff_gist(entry, gist_id, gistid2gistprop, live, verbose, quiet)
+                diff_gist(entry, gist_id, gistid2gistprop, live, quiet)
             
             elif entry.is_dir():
                 
@@ -348,26 +346,26 @@ def main(ctx,
                     if not gitdir.is_dir():
                         continue
                 except PermissionError:
-                    if verbose:
+                    if config.verbose:
                         logger.warning(f"[b]{directory}[/b]: skipping; PermissionError[/]")
                     continue
                 
                 # .git dir size
                 gitdir_size_mb = sum(map(lambda p: p.stat().st_size, gitdir.glob('**/*'))) / 1000000
                 if gitdir_size_mb >= gitdir_size_limit:
-                    if verbose:
+                    if config.verbose:
                         logger.warning(f"[b]{directory}[/b]: skipping; .git dir is {int(gitdir_size_mb)}MB")
                     continue
                 
                 os.chdir(directory)
                 
                 # fetch and parse status
-                run('git fetch --all --prune --jobs=10', stdout=sp.DEVNULL, stderr=sp.DEVNULL, verbose=verbose if verbose >= 2 else None)
+                run('git fetch --all --prune --jobs=10', stdout=sp.DEVNULL, stderr=sp.DEVNULL, verbose=config.verbose if config.verbose >= 2 else None)
                 status = run('git status')
                 has_local_modified_files = not status.endswith('nothing to commit, working tree clean')
                 if not has_local_modified_files and 'behind' not in status and 'have diverged' not in status:
                     # nothing modified, we're up-to-date.
-                    if not verbose:
+                    if not config.verbose:
                         continue
                     msg = f"[good][b]{directory}[/b]: nothing modified, "
                     if 'ahead' in status:
@@ -375,7 +373,7 @@ def main(ctx,
                         msg += f"but {status.splitlines()[1]}\n\t"
                     else:
                         msg += "everything up-to-date."
-                    origin, upstream, tracking = get_remotes(verbose)
+                    origin, upstream, tracking = get_remotes(config.verbose if config.verbose >=2 else None)
                     if origin:
                         msg += f' [b]origin[/b]: [i]{origin}[/i].'
                     if upstream:
