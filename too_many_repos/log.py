@@ -52,6 +52,7 @@ console = TmrConsole()
 rhandler = RichHandler(level=logging.DEBUG,
                        console=console,
                        markup=True,
+                       show_level=False,
                        rich_tracebacks=True,
                        tracebacks_extra_lines=10,
                        tracebacks_show_locals=True)
