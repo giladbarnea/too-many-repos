@@ -122,7 +122,7 @@ def diff_gist(entry, gist_id, id2props, live, quiet):
     #     live.stop()
     #     from IPython import start_ipython
     #     start_ipython(argv=[], user_ns={**locals(), **globals()})
-    diff = run(f'diff -ZbwBu --strip-trailing-cr "{tmp_stripped_gist_file_path}" "{tmp_stripped_file_path}"')
+    diff = run(f'diff -ZbwBu --strip-trailing-cr --suppress-blank-empty "{tmp_stripped_gist_file_path}" "{tmp_stripped_file_path}"')
     if diff:
         gist_date = id2props[gist_id].get('date')
         prompt = f"[warn][b]{entry.absolute()}[/b]: file and gist {gist_id} ('{gist_description[:32]}') are different"
