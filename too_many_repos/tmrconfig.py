@@ -14,13 +14,13 @@ class TmrConfig(Singleton):
     def __init__(self, verbose=0):
         super().__init__()
         self.verbose = verbose
+        config_file = Path.home() / '.tmrrc.py'
         try:
-            config_file = Path.home() / '.tmrrc.py'
+            exec(compile(config_file.open().read(), config_file, 'exec'), dict(tmr=self))
         except FileNotFoundError as e:
             if self.verbose >= 1:
                 logger.warning(f"Did not find {Path.home() / '.tmrrc.py'}")
         else:
-            exec(compile(config_file.open().read(), config_file, 'exec'), dict(tmr=self))
             if self.verbose >= 2:
                 logger.info(f"[good]Loaded config file successfully: {config_file}[/]")
         finally:
