@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "too-many-repos"
 version = "0.0.2"
-description = "A command-line tool for lazy people with many projects"
+description = "A command-line tool for lazy people with too many projects"
 authors = ["Gilad Barnea <giladbrn@gmail.com>"]
 
 [tool.poetry.dependencies]
