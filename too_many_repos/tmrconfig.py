@@ -6,8 +6,6 @@ from pathlib import Path
 import sys
 
 
-
-
 class TmrConfig(Singleton):
     verbose: int
     
@@ -29,7 +27,8 @@ class TmrConfig(Singleton):
                 if verbose_from_sys_argv >= 2:
                     logger.warning((f"verbose level was set in multiple ways, and will be overridden "
                                     f"by the value passed via cmdline: {verbose_from_sys_argv}"))
-                self.verbose= verbose_from_sys_argv
+                self.verbose = verbose_from_sys_argv
+    
     @staticmethod
     def get_verbose_level_from_sys_argv(default=0) -> Optional[int]:
         for i, arg in enumerate(sys.argv):
@@ -37,7 +36,7 @@ class TmrConfig(Singleton):
                 level = arg.count('v')
                 sys.argv.pop(i)
                 return level
-        
+            
             # Handle 3 situations:
             # 1) --verbose=2
             # 2) --verbose 2
@@ -48,7 +47,7 @@ class TmrConfig(Singleton):
                     level = int(arg.partition('=')[2])
                     sys.argv.pop(i)
                     return level
-            
+                
                 sys.argv.pop(i)
                 try:
                     level = sys.argv[i]
@@ -59,7 +58,7 @@ class TmrConfig(Singleton):
                     if level.isdigit():
                         # e.g. --verbose 2
                         level = int(level)
-                    
+                        
                         # pop 2nd time for arg value
                         sys.argv.pop(i)
                     else:
@@ -67,3 +66,6 @@ class TmrConfig(Singleton):
                         level = 1
                 return level
         return None
+
+
+config = TmrConfig()
