@@ -101,22 +101,17 @@ class TmrIgnore(Set[Ignorable], Singleton):
 			if ignorable.matches(element):
 				return True
 		return False
-		# if isinstance(ignored, re.Pattern):
-		#     if ignored.search(str(element)):
-		#         return True
-		#     continue
 
 	def add(self, element: IgnorableType) -> None:
-		# print(f'add({element = })')
 		ignorable = Ignorable(element)
 		if not ignorable:
+			# Shouldn't happen
 			breakpoint()
 		super().add(ignorable)
 		if config.verbose >= 2 and not ignorable.exists():
 			logger.warning(f"Does not exist: {ignorable}")
 
 	def update(self, *s: Iterable[IgnorableType]) -> None:
-		# print(f'update({s = })')
 		for element in s:
 			self.add(element)
 
@@ -130,8 +125,7 @@ class TmrIgnore(Set[Ignorable], Singleton):
 		except Exception as e:
 			logger.warning(f"{e.__class__.__qualname__} when handling {ignorefile}: {', '.join((map(str, e.args)))}")
 		else:
-			if config.verbose:
-				logger.info(f"[good]found {ignorefile}[/]")
+			logger.info(f"[good]Loaded ignore file successfully: {ignorefile}[/]")
 
 		for exclude in entries:
 			self.add(exclude)
