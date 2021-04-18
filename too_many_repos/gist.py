@@ -28,6 +28,9 @@ class Gist:
 	def __str__(self):
 		return f"{self.id[:16]} '{self.description}' ({self.filecount} files)"
 
+	def short(self) -> str:
+		return f"{self.id[:8]} '{self.description[:32]}'"
+
 	def __post_init__(self):
 		self.filecount = int(self.filecount.partition(' ')[0])
 
@@ -64,7 +67,7 @@ class Gist:
 			file = File()
 			file.ignored = tmrignore.is_ignored(name)
 			self.files[name] = file
-		logger.debug(f"[#]{self.id[:16]} ('{self.description[:16]}') built {len(self.files)} files[/]")
+		logger.debug(f"[#][b]{self.short()}[/b] built {len(self.files)} files[/]")
 
 	def popuplate_files_content(self) -> NoReturn:
 		"""
@@ -75,9 +78,11 @@ class Gist:
 		Called by get_file2gist_map() in a threaded fashion.
 		"""
 		for name, file in self.files.items():
+			if file.ignored:
+				continue
 			content = self._get_file_content(name)
 			file.content = content
-		logger.debug(f"[#]{self.id[:16]} ('{self.description[:16]}') popuplated files content[/]")
+		logger.debug(f"[#][b]{self.short()}[/b] populated files content[/]")
 
 	def diff(self, path: Path) -> bool:
 		"""Returns Whether the stripped contents of `path` and this gist's respective file are different.
@@ -96,11 +101,11 @@ class Gist:
 
 		diff = system.run(f'diff -ZbwBu --strip-trailing-cr --suppress-blank-empty "{tmp_gist_path}" "{tmp_file_path}"')
 		if not diff:
-			logger.info(f"[good][b]{path.absolute()}[/b]: file and gist {self.id[:16]} ('{self.description[:32]}') file are identical[/]")
+			logger.info(f"[good][b]Diff {path.absolute()}[/b]: file and [b]{self.short()}[/b] file are identical[/]")
 			gist_file.diff = False
 			return False
 
-		prompt = f"[warn][b]{path.absolute()}[/b]: file and gist {self.id} ('{self.description[:32]}') are different"
+		prompt = f"[warn][b]Diff {path.absolute()}[/b]: file and [b]{self.short()}[/b] are different"
 		logger.info(prompt)
 		gist_file.diff = True
 		return True
@@ -143,7 +148,11 @@ def get_file2gist_map() -> Dict[str, List[Gist]]:
 
 
 	# * gist.build_files()
-	with fut.ThreadPoolExecutor(max_workers=len(gh_gist_list)) as executor:
+	if config.max_threads:
+		max_workers = min(config.max_threads, len(gh_gist_list))
+	else:
+		max_workers= len(gh_gist_list)
+	with fut.ThreadPoolExecutor(max_workers) as executor:
 		for gist_str in gh_gist_list:
 			gist = Gist(*gist_str.split('\t'))
 
@@ -157,7 +166,7 @@ def get_file2gist_map() -> Dict[str, List[Gist]]:
 			gists.append(gist)
 
 	# * file.content = gh gist view ... -f <NAME>
-	with fut.ThreadPoolExecutor(max_workers=len(gh_gist_list)) as executor:
+	with fut.ThreadPoolExecutor(max_workers) as executor:
 		for gist in gists:
 
 			for name, file in gist.files.items():

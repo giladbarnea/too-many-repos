@@ -58,6 +58,7 @@ class Ignorable:
 			return Path(self._val).exists()
 
 	def matches(self, other: IgnorableType) -> bool:
+		# TODO: bug: only full gist ids are matched here
 		if isinstance(self._val, re.Pattern):
 			return self._val.search(str(other)) is not None
 		_valpath = Path(self._val)

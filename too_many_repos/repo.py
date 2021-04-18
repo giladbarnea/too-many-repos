@@ -28,12 +28,17 @@ class Repo:
         self.status = None
         self.remotes = None
 
+    def __repr__(self) -> str:
+        return f"Repo({self.path})"
+
     def fetch(self) -> NoReturn:
         with visit_dir(self.path):
+            logger.debug(f'git fetch in {self.path}...')
             system.run('git fetch --all --prune --jobs=10', stdout=sp.DEVNULL, stderr=sp.DEVNULL, verbose=config.verbose)
 
     def popuplate_status(self) -> NoReturn:
         with visit_dir(self.path):
+            logger.debug(f'git status in {self.path}...')
             status = system.run('git status', verbose=config.verbose)
         self.status = status
 

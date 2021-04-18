@@ -164,6 +164,7 @@ def diff_recursively_with_gists(path: Path, file2gist:Dict[str, List[Gist]]):
 @click.option('-q', '--quiet', is_flag=True)
 @click.option('--gists', 'should_check_gists', is_flag=True, help='Look for local files that match files in own gists and diff them')
 @click.option('--repos/--no-repos', 'should_check_repos', default=True)
+@click.option('--no-fetch', is_flag=True, default=False)
 @click.pass_context
 def main(ctx,
 		 parent_path: Path,
@@ -173,7 +174,8 @@ def main(ctx,
 		 help: bool,
 		 should_check_gists: bool = False,
 		 should_check_repos: bool = True,
-		 quiet: bool = False):
+		 quiet: bool = False,
+		 no_fetch: bool = False):
 	"""
 	Runs `git fetch --all --prune --jobs=10; git status` in each subdir of PARENT_PATH that:
 
@@ -201,10 +203,12 @@ def main(ctx,
 	tmrignore.update_from_file(parent_path)
 
 	logger.debug((f"{parent_path = }, {glob = },\n"
-				  f"{gitdir_size_limit = }, {config.verbose = },\n"
+				  f"{gitdir_size_limit = },\n"
 				  f"{should_check_gists = },\n"
 				  f"{should_check_repos = },\n"
 				  f"{quiet = }"))
+	print('\n[b]config:[/]')
+	print(config)
 	print('\n[b]Excluding:[/]')
 	print(tmrignore)
 
@@ -223,7 +227,12 @@ def main(ctx,
 		direct_subdirs = get_direct_subdirs(parent_path)
 		if should_check_gists:
 			logger.debug(f'[#]Diffing gists recursively in {len(direct_subdirs)} threads...[/]')
-			with fut.ThreadPoolExecutor(max_workers=len(direct_subdirs)) as xtr:
+			if config.max_threads:
+				max_workers = min(config.max_threads, len(direct_subdirs))
+			else:
+				max_workers = len(direct_subdirs)
+
+			with fut.ThreadPoolExecutor(max_workers) as xtr:
 				for subdir in direct_subdirs:
 					xtr.submit(diff_recursively_with_gists,subdir,file2gist)
 
@@ -238,12 +247,28 @@ def main(ctx,
 				logger.warning(f"[b]{repo.path}[/b]: skipping; .git dir size is above {config.gitdir_size_limit_mb}MB")
 				continue
 
+			# Skip if ignored
+			if tmrignore.is_ignored(repo.path):
+				logger.warning(f"[b]{repo.path}[/b]: ignored")
+				continue
+
 			repos.append(repo)
 
-		logger.debug(f'[#]Fetching {len(repos)} repos in {len(repos)} threads...[/]')
-		with fut.ThreadPoolExecutor(max_workers=len(repos)) as xtr:
-			xtr.submit(repo.fetch)
-			xtr.submit(repo.popuplate_status)
+		if config.max_threads:
+			max_workers = min(config.max_threads, len(repos))
+		else:
+			max_workers = len(repos)
+
+		if not no_fetch:
+			logger.debug(f'[#]Fetching {len(repos)} repos in {max_workers} threads...[/]')
+			with fut.ThreadPoolExecutor(max_workers) as xtr:
+				xtr.map(Repo.fetch, repos)
+
+		logger.debug(f'[#]Git status {len(repos)} repos in {max_workers} threads...[/]')
+		with fut.ThreadPoolExecutor(max_workers) as xtr:
+			xtr.map(Repo.popuplate_status, repos)
+			# xtr.submit(repo.popuplate_status)
+		logger.debug(f'[#]Done fetching and git statusing[/]')
 
 
 			# os.chdir(repo.path)
@@ -294,6 +319,7 @@ def main(ctx,
 
 			# Just to display in terminal
 			os.chdir(repo.path)
+			logger.info(f'[prompt]{repo.path}[/]')
 			os.system(f'git status')
 			print()
 
@@ -310,7 +336,7 @@ def main(ctx,
 				else:
 					live.stop()
 
-					if Confirm.ask('[prompt]git pull?[/]'):
+					if Confirm.ask(f'[prompt][b]{repo.path}[/b]: git pull?[/]'):
 						# live.start()
 						logger.info('pulling...')
 						os.system('git pull')

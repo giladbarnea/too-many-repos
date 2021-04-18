@@ -1,4 +1,4 @@
-from typing import Optional, Literal, Iterable, TypeVar, NoReturn
+from typing import Optional, Literal, Iterable, TypeVar, NoReturn, get_origin, get_args, Union
 
 from too_many_repos.singleton import Singleton
 from too_many_repos.log import logger
@@ -9,12 +9,94 @@ from click import BadOptionUsage
 CacheMode = Optional[Literal['r', 'w']]
 _O = TypeVar('_O')
 
+from rich.traceback import install
+install(extra_lines=5, show_locals=True)
+
+# @logurulogger.catch()
+def is_valid(val: Optional[str], type_) -> bool:
+	if isinstance(type_, type):
+		# type_ is e.g. bool, NoneType
+		if isinstance(val, type_):
+			# isintance(None, NoneType) → True
+			return True
+
+		if type_ is bool:
+			return val.lower() in ('true', 'false', '1', '0')
+		if type_ is str:
+			return isinstance(val, str)
+		if type_ is int or type_ is float:
+			try:
+				# e.g int(val)
+				type_(val)
+				return True
+			except (ValueError, TypeError):
+				# Failed converting
+				return False
+		breakpoint()
+		raise NotImplementedError(f"is_valid({val = }, {type_ = })")
+
+	if not hasattr(type_, '__args__'):
+		# type_ is a primitive (e.g None, 'r', 5)
+		# It's possible that val is an actual None
+		if type_ is None:
+			return val is None
+
+		# e.g. '5' == str(5)
+		return val == str(type_)
+
+	# type_ is a typing.<Foo>
+	for arg in get_args(type_):
+		if is_valid(val, arg):
+			return True
+	return False
+
+def cast_type(val: Optional[str], type_: _O)->_O:
+	if isinstance(type_, type):
+		# type_ is e.g. bool, NoneType
+		if type_ is bool:
+			if (val:=val.lower()) in ('true', '1'):
+				return True
+			if val in ('false', '0'):
+				return False
+			raise ValueError(f"cast_type({val = }, {type_ = }) _type is bool, so val must be in ('true', 'false', '1', '0')")
+
+		if type_ is str:
+			return val
+
+		if type_ is int or type_ is float:
+			return type_(val)
+
+		# if issubclass(type_, Iterable):
+		# 	# list, tuple, dict, ...
+		# 	val.split(',')
+		breakpoint()
+		raise NotImplementedError(f"is_valid({val = }, {type_ = })")
+	if not hasattr(type_, '__args__'):
+		# type_ is a primitive (e.g None, 'r', 5)
+		if type_ is None:
+			if val is not None:
+				# This is probably redundant because is_valid check is made before calling this function
+				raise ValueError(f"cast_type({val = }, {type_ = }) _type is None, so val must None")
+			return None
+
+		return type(type_)(val)
+
+	# type_ is a typing.<Foo>
+	if get_origin(type_) is Union:
+		# e.g. Optional[Literal['r', 'w'], None]
+		type_args = get_args(type_)
+		if val is None and any(type_arg is type(None) for type_arg in type_args):
+			# Already cast to None
+			return None
+	breakpoint()
+
+
 
 def popopt(opt: str, type_: _O, also_short=False) -> _O:
 	"""
 
 	:param opt: e.g '--verbose'
-	:param type_: e.g. `bool` or `Literal['r', 'r+w']`
+	:param type_: e.g. `bool`, `Literal['r', 'w']`, `Optional[Literal[...]]`
 	:param also_short: look for e.g. '-v'
 	:return:
 	"""
@@ -39,7 +121,7 @@ def popopt(opt: str, type_: _O, also_short=False) -> _O:
 		if found_it(arg):
 			if '=' in arg:
 				# e.g. --opt=foo
-				specified_opt, _, val = arg.partition('=')[2]
+				specified_opt, _, val = arg.partition('=')
 				sys.argv.pop(i)
 				break
 
@@ -55,23 +137,29 @@ def popopt(opt: str, type_: _O, also_short=False) -> _O:
 					val = True
 				else:
 					raise BadOptionUsage(opt, (f"{specified_opt} opt was specified without value. "
-												   f"accepted values: {type_}")) from None
-	if val is not None and val and not isinstance(val, type_):
+											   f"accepted values: {type_}")) from None
+
+	if not is_valid(val, type_):
 		BadOptionUsage(opt, (f"{specified_opt} opt was specified with invalid value: {repr(val)}. "
-								 f"accepted values: {type_}"))
-	return val
+							 f"accepted values: {type_}"))
+	cast = cast_type(val, type_)
+	return cast
 
 
 class TmrConfig(Singleton):
 	verbose: int
 	cache_mode: CacheMode
 	cache_path: Path
+	max_threads: Optional[int]
+	gitdir_size_limit_mb: int
 
 	def __init__(self):
 		super().__init__()
 		self.verbose = 0
 		self.cache_mode: CacheMode = None
 		self.cache_path: Path = None
+		self.max_threads: Optional[int] = None
+		self.gitdir_size_limit_mb: int = 100
 		config_file = Path.home() / '.tmrrc.py'
 		try:
 			exec(compile(config_file.open().read(), config_file, 'exec'), dict(tmr=self))
@@ -102,6 +190,13 @@ class TmrConfig(Singleton):
 		# * cache_mode
 		self._try_set_cache_mode_from_sys_args()
 
+		# * max_threads
+		self._try_set_max_threads_from_sys_args()
+	def __str__(self):
+		rv = f"TmrConfig()"
+		for key, val in self.__dict__.items():
+			rv += f'\n\tself.{key}: {val}'
+		return rv
 	@staticmethod
 	def _get_verbose_level_from_sys_argv() -> Optional[int]:
 		for i, arg in enumerate(sys.argv):
@@ -141,12 +236,20 @@ class TmrConfig(Singleton):
 		return None
 
 	def _try_set_cache_mode_from_sys_args(self) -> NoReturn:
-		mode = popopt('--cache', CacheMode)
+		mode = popopt('--cache-mode', CacheMode)
 		if mode is not None:
 			if self.cache_mode:
 				logger.warning((f"cache mode was specified both in config and cmd args, and will be overridden "
 								f"by the value passed via cmdline: {mode}"))
 			self.cache_mode = mode
+
+	def _try_set_max_threads_from_sys_args(self) -> NoReturn:
+		max_threads = popopt('--max-threads', Optional[int])
+		if max_threads is not None:
+			if self.max_threads:
+				logger.warning((f"max_threads was specified both in config and cmd args, and will be overridden "
+								f"by the value passed via cmdline: {max_threads}"))
+			self.max_threads = max_threads
 
 
 config = TmrConfig()

@@ -1,6 +1,5 @@
-from typing import List, Optional, Dict
+from typing import List, Optional
 
-from too_many_repos.gist import Gist
 from too_many_repos.singleton import Singleton
 from too_many_repos.tmrconfig import config
 import pickle
