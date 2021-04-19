@@ -267,7 +267,7 @@ def main(ctx,
 		logger.debug(f'[#]Git status {len(repos)} repos serially...[/]')
 		for repo in repos:
 			repo.popuplate_status()
-		
+
 		logger.debug(f'[#]Done fetching and git statusing[/]')
 
 

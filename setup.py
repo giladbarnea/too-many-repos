@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# python3.8 setup.py develop --user
 from setuptools import setup
 
 packages = \
