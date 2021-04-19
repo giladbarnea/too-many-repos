@@ -264,10 +264,10 @@ def main(ctx,
 			with fut.ThreadPoolExecutor(max_workers) as xtr:
 				xtr.map(Repo.fetch, repos)
 
-		logger.debug(f'[#]Git status {len(repos)} repos in {max_workers} threads...[/]')
-		with fut.ThreadPoolExecutor(max_workers) as xtr:
-			xtr.map(Repo.popuplate_status, repos)
-			# xtr.submit(repo.popuplate_status)
+		logger.debug(f'[#]Git status {len(repos)} repos serially...[/]')
+		for repo in repos:
+			repo.popuplate_status()
+		
 		logger.debug(f'[#]Done fetching and git statusing[/]')
 
 
