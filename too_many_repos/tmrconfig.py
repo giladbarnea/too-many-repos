@@ -98,44 +98,39 @@ def is_valid(val: Optional[str], type_: Union[Type[None], str, bool, float, int,
 
 
 def cast_type(val: Optional[str], type_: _O) -> _O:
-	if isinstance(type_, type):
-		# type_ is e.g. bool, NoneType
-		if type_ is bool:
-			if (val := val.lower()) in ('true', '1'):
-				return True
-			if val in ('false', '0'):
-				return False
-			raise ValueError(f"cast_type({val = }, {type_ = }) _type is bool, so val must be in ('true', 'false', '1', '0')")
+	"""Assumes val is valid"""
+	if hasattr(type_, '__args__'):
+		# * type_ is a typing.<Foo>
+		type_origin = get_origin(type_)
+		type_args = set(get_args(type_))
+		if type_origin is Union:
+			if NoneType in type_args:
+				if val in (None, 'NONE', 'None', 'none'):
+					return None
 
-		if type_ is str:
+			type_args -= {NoneType}
+
+		if len(type_args) == 1:
+			# Was Optional[Literal['r', 'w']], now it's Literal['r', 'w']
+			return cast_type(val, next(iter(type_args)))
+		if val in type_args:
 			return val
+		raise NotImplementedError(f'{val = } not in {type_args = }')
 
-		if type_ is int or type_ is float:
-			return type_(val)
+	if type_ in (NoneType, None):
+		return None
+	if type_ in (bool, True, False, Literal[True], Literal[False]):
+		if type_ in (True, Literal[True]):
+			return True
+		elif type_ in (False, Literal[False]):
+			return False
+		return True if val in ('true', 'True', 'TRUE', 'yes', 'Yes', 'YES') else False
 
-		# if issubclass(type_, Iterable):
-		# 	# list, tuple, dict, ...
-		# 	val.split(',')
-		breakpoint()
-		raise NotImplementedError(f"is_valid({val = }, {type_ = })")
-	if not hasattr(type_, '__args__'):
-		# type_ is a primitive (e.g None, 'r', 5)
-		if type_ is None:
-			if val is not None:
-				# This is probably redundant because is_valid check is made before calling this function
-				raise ValueError(f"cast_type({val = }, {type_ = }) _type is None, so val must None")
-			return None
+	if type_ in (int, float, str):
+		return type_(val)
+	return type(type_)(val)
 
-		return type(type_)(val)
 
-	# type_ is a typing.<Foo>
-	if get_origin(type_) is Union:
-		# e.g. Optional[Literal['r', 'w'], None]
-		type_args = get_args(type_)
-		if val is None and any(type_arg is type(None) for type_arg in type_args):
-			# Already cast to None
-			return None
-	breakpoint()
 
 
 def popopt(opt: str, type_: _O, also_short=False) -> _O:
