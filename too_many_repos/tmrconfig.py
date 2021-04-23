@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from typing import Optional, Literal, TypeVar, NoReturn, get_origin, get_args, Union
+from typing import Optional, Literal, TypeVar, NoReturn, get_origin, get_args, Union, Type
 
 from click import BadOptionUsage
 
@@ -15,7 +15,7 @@ from rich.traceback import install
 install(extra_lines=5, show_locals=True)
 NoneType = type(None)
 TYPE_VALUES = {
-	bool: ('true', 'false', 'yes', 'no'),
+	bool:     ('true', 'false', 'yes', 'no'),
 	NoneType: ('none', None)
 	}
 
@@ -28,8 +28,7 @@ def isnum(s: str) -> bool:
 		return False
 
 
-# @logurulogger.catch()
-def is_valid(val: Optional[str], type_) -> bool:
+def is_valid(val: Optional[str], type_: Union[Type[None], str, bool, float, int, None]) -> bool:
 	"""
 	val can be either a string representation of type_, or None.
 
@@ -72,10 +71,7 @@ def is_valid(val: Optional[str], type_) -> bool:
 		return not isnum(val) and not any(val in othervalues for othervalues in TYPE_VALUES.values())
 
 	if not hasattr(type_, '__args__'):
-		# type_ is a value / instance (e.g None, 'r', 5)
-		# It's possible that val is an actual None
-		metatype = type(type_)
-
+		# * type_ is a value / instance (e.g None, 'r', 5)
 		if type_ is None:
 			# is_valid("None", None) → True
 			return val is None or val.lower() == 'none'
@@ -91,15 +87,11 @@ def is_valid(val: Optional[str], type_) -> bool:
 		elif type_ is False:
 			return val in ('false', 'no')
 
-		# if metatype in (int, float):
-		# 	# float("5.5") == 5.5
-		# 	return metatype(val) == type_
-
 
 		# e.g. '5' == str(5)
 		return val == str(type_)
 
-	# type_ is a typing.<Foo>
+	# * type_ is a typing.<Foo>
 	for arg in get_args(type_):
 		if is_valid(val, arg):
 			return True
