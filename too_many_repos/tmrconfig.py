@@ -16,7 +16,7 @@ install(extra_lines=5, show_locals=True)
 NoneType = type(None)
 TYPE_VALUES = {
 	bool: ('true', 'false', 'yes', 'no'),
-	NoneType: ('none',None)
+	NoneType: ('none', None)
 	}
 
 

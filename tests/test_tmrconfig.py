@@ -1,6 +1,7 @@
 from too_many_repos.tmrconfig import is_valid
 from typing import Literal, Union, Optional
 NoneType = type(None)
+
 def test_is_valid():
 	# * type_ is not value / instance (e.g. bool, NoneType)
 	### True
@@ -124,6 +125,46 @@ def test_is_valid():
 
 
 	# * type_ is a typing.<Foo>
+	# * Optional
+	### True
 	assert is_valid(None, Optional[int]) is True
-	assert is_valid(None, Optional[int]) is True
-	assert is_valid(None, Union[None, int]) is True
+	assert is_valid("5", Optional[int]) is True
+	assert is_valid(None, Optional[str]) is True
+	assert is_valid("hi", Optional[str]) is True
+	assert is_valid(None, Optional[float]) is True
+	assert is_valid("5", Optional[float]) is True
+	assert is_valid("5.5", Optional[float]) is True
+	assert is_valid(None, Optional[bool]) is True
+	assert is_valid("true", Optional[bool]) is True
+	assert is_valid("False", Optional[bool]) is True
+	assert is_valid("yes", Optional[bool]) is True
+	assert is_valid("No", Optional[bool]) is True
+
+	### False
+	assert is_valid("true", Optional[int]) is False
+	assert is_valid("5.5", Optional[int]) is False
+	assert is_valid("true", Optional[str]) is False
+	assert is_valid("true", Optional[float]) is False
+	assert is_valid("5", Optional[bool]) is False
+
+	# * Literal
+	### True
+	assert is_valid("hello", Literal["hello"]) is True
+	assert is_valid("5", Literal["5"]) is True
+	assert is_valid("5.5", Literal["5.5"]) is True
+	assert is_valid("true", Literal[True]) is True
+	assert is_valid("yes", Literal[True]) is True
+	assert is_valid("false", Literal[False]) is True
+	assert is_valid("no", Literal[False]) is True
+	assert is_valid("r", Literal["r"]) is True
+
+	### False
+	assert is_valid("olleh", Literal["hello"]) is False
+	assert is_valid("5.5", Literal["5"]) is False
+	assert is_valid("false", Literal[True]) is False
+	assert is_valid("no", Literal[True]) is False
+	assert is_valid("true", Literal[False]) is False
+	assert is_valid("yes", Literal[False]) is False
+	assert is_valid("5", Literal[False]) is False
+	assert is_valid("none", Literal[False]) is False
+	assert is_valid("w", Literal["r"]) is False
