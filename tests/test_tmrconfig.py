@@ -3,7 +3,7 @@ from typing import Literal, Union, Optional
 NoneType = type(None)
 
 def test_is_valid():
-	# * type_ is not value / instance (e.g. bool, NoneType)
+	# ** type_ is not value / instance (e.g. bool, NoneType)
 	### True
 	assert is_valid("true", bool) is True
 	assert is_valid("false", bool) is True
@@ -57,7 +57,7 @@ def test_is_valid():
 	assert is_valid("yes", str) is False
 	assert is_valid("none", str) is False
 
-	# * type_ is a value / instance (e.g None, 'r', 5)
+	# ** type_ is a value / instance (e.g None, 'r', 5)
 	### True
 	assert is_valid(None, None) is True
 	assert is_valid("None", None) is True
@@ -124,7 +124,7 @@ def test_is_valid():
 
 
 
-	# * type_ is a typing.<Foo>
+	# ** type_ is a typing.<Foo>
 	# * Optional
 	### True
 	assert is_valid(None, Optional[int]) is True
@@ -168,3 +168,19 @@ def test_is_valid():
 	assert is_valid("5", Literal[False]) is False
 	assert is_valid("none", Literal[False]) is False
 	assert is_valid("w", Literal["r"]) is False
+
+	# * Union
+	### True
+	assert is_valid('r', Union[Literal['r'], Literal['w']]) is True
+	assert is_valid('w', Union[Literal['r'], Literal['w']]) is True
+	assert is_valid('r', Union[Literal['r'], Literal[5]]) is True
+	assert is_valid('5', Union[Literal['r'], Literal[5]]) is True
+	assert is_valid(None, Union[Literal['r'], Literal[5], None]) is True
+	assert is_valid(None, Union[Optional[Literal['r']], Union[Literal[5]]]) is True
+	assert is_valid('none', Union[Literal['r'], Literal[5], None]) is True
+	assert is_valid('5', Union[Literal['r'], Literal[5]]) is True
+	assert is_valid('yes', Union[Literal['r'], Literal[True]]) is True
+
+	### False
+	assert is_valid(None, Union[Literal['r'], Literal['w']]) is False
+	assert is_valid('5', Union[Literal['r'], Literal[True]]) is False
