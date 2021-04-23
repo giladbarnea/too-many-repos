@@ -1,8 +1,9 @@
+from collections import defaultdict
+from concurrent import futures as fut
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Any, Literal, Dict, NoReturn
-from collections import defaultdict
-from concurrent import futures as fut
+
 from too_many_repos import system
 from too_many_repos.cache import cache
 from too_many_repos.log import logger
@@ -11,7 +12,6 @@ from too_many_repos.tmrignore import tmrignore
 
 
 class File:
-	ignored: bool = False
 	content: str = ''
 	diff: bool
 
@@ -55,17 +55,20 @@ class Gist:
 			cache.set_gist_file_content(self.id, file_name, content)
 		return content
 
-	def build_files(self) -> NoReturn:
+	def build_self_files(self, *, skip_ignored: bool) -> NoReturn:
 		"""
 		Popuplates self.files.
 
-		Calls self._get_file_names(self) which may use cache.
+		Calls self._get_file_names() (rest) which may use cache.
 
-		Called by get_file2gist_map() in a threaded fashion."""
+		Called by get_file2gist_map() in a threaded context."""
 		filenames = self._get_file_names()
 		for name in filenames:
 			file = File()
-			file.ignored = tmrignore.is_ignored(name)
+			if is_ignored := tmrignore.is_ignored(name) and skip_ignored:
+				logger.warning(f"gist file [b]'{name}'[/b] of {self.short()}: skipping; excluded")
+				continue
+			file.ignored = is_ignored
 			self.files[name] = file
 		logger.debug(f"[#][b]{self.short()}[/b] built {len(self.files)} files[/]")
 
@@ -75,11 +78,9 @@ class Gist:
 
 		Calls self._get_file_content(self, file_name) which may use cache.
 
-		Called by get_file2gist_map() in a threaded fashion.
+		Called by get_file2gist_map() in a threaded context.
 		"""
 		for name, file in self.files.items():
-			if file.ignored:
-				continue
 			content = self._get_file_content(name)
 			file.content = content
 		logger.debug(f"[#][b]{self.short()}[/b] populated files content[/]")
@@ -105,10 +106,11 @@ class Gist:
 			gist_file.diff = False
 			return False
 
-		prompt = f"[warn][b]Diff {path.absolute()}[/b]: file and [b]{self.short()}[/b] are different"
+		prompt = f"[warn][b]Diff {path.absolute()}[/b]: file and [b]{self.short()}[/b] are [b]different[/]"
 		logger.info(prompt)
 		gist_file.diff = True
 		return True
+
 
 # @property
 # def content(self) -> str:
@@ -127,7 +129,7 @@ class Gist:
 # 		finally:
 # 			self._content = stripped_content
 # 	return self._content
-def get_gh_gist_list()-> List[str]:
+def get_gh_gist_list() -> List[str]:
 	"""Calls `gh gist list -L 100` to get the list of gists.
 	May use cache."""
 	if config.cache_mode == 'r' and (gh_gist_list := cache.gh_gist_list) is not None:
@@ -146,33 +148,29 @@ def get_file2gist_map() -> Dict[str, List[Gist]]:
 	gists: List[Gist] = []
 	gh_gist_list: List[str] = get_gh_gist_list()
 
-
-	# * gist.build_files()
+	# * gist.build_self_files()
 	if config.max_threads:
 		max_workers = min(config.max_threads, len(gh_gist_list))
 	else:
-		max_workers= len(gh_gist_list)
+		max_workers = len(gh_gist_list)
 	with fut.ThreadPoolExecutor(max_workers) as executor:
 		for gist_str in gh_gist_list:
 			gist = Gist(*gist_str.split('\t'))
 
 			# There shouldn't be many false positives, because description includes
-			# spaces which means pattern.search(gist.description), and id is specific
+			# spaces which means pattern.search(gist.description), and id is specific.
+			# Also don't check for
 			if tmrignore.is_ignored(gist.id) or tmrignore.is_ignored(gist.description):
-				logger.warning(f"skipping [b]{gist.id} ('{gist.description[:32]}')[/b]: excluded")
+				logger.warning(f"[b]{gist.id} ('{gist.description[:32]}')[/b]: skipping; excluded")
 				continue
 
-			executor.submit(gist.build_files)
+			executor.submit(gist.build_self_files, skip_ignored=True)
 			gists.append(gist)
 
 	# * file.content = gh gist view ... -f <NAME>
 	with fut.ThreadPoolExecutor(max_workers) as executor:
 		for gist in gists:
-
 			for name, file in gist.files.items():
-				if file.ignored:
-					logger.warning(f"gist file [b]'{name}'[/b] of {gist.id} ('{gist.description[:32]}'): skipping; excluded")
-					continue
 				executor.submit(gist.popuplate_files_content)
 				file2gist[name].append(gist)
 			if config.verbose >= 2:

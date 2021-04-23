@@ -1,26 +1,24 @@
 #!/bin/python3.8
-from typing import Optional, List, Dict
+import os
+import sys
+from concurrent import futures as fut
+from datetime import datetime as dt
+from datetime import timedelta
+from pathlib import Path
+from typing import List, Dict
 
 import click
-from concurrent import futures as fut
-from pathlib import Path
-import sys
-import subprocess as sp
-import os
-from rich.live import Live
-from rich.spinner import Spinner
-from rich.prompt import Confirm, IntPrompt
-
 from rich import print
-from datetime import timedelta
-from datetime import datetime as dt
+from rich.live import Live
+from rich.prompt import Confirm, IntPrompt
+from rich.spinner import Spinner
 
 from too_many_repos import system
 from too_many_repos.gist import get_file2gist_map, Gist
-from too_many_repos.repo import Repo
-from too_many_repos.tmrignore import tmrignore
-from too_many_repos.tmrconfig import config
 from too_many_repos.log import logger, console
+from too_many_repos.repo import Repo
+from too_many_repos.tmrconfig import config
+from too_many_repos.tmrignore import tmrignore
 
 THIS_FILE_STEM = Path(__file__).stem
 
@@ -102,8 +100,7 @@ def diff_gist(entry: Path, gist: Gist, live, quiet):
 		logger.info(f"[good][b]{entry.absolute()}[/b]: file and gist {gist.id[:16]} ('{gist.description[:32]}') file are identical[/]")
 
 
-
-def get_matching_gist(file_name: str, matching_gists: List[Gist]) -> Gist:
+def reduce_to_single_gist_by_filename(file_name: str, matching_gists: List[Gist]) -> Gist:
 	if len(matching_gists) == 1:
 		gist = matching_gists[0]
 	else:
@@ -115,7 +112,7 @@ def get_matching_gist(file_name: str, matching_gists: List[Gist]) -> Gist:
 	return gist
 
 
-def get_direct_subdirs(path:Path)->List[Path]:
+def get_direct_subdirs(path: Path) -> List[Path]:
 	direct_subdirs = []
 	for subdir in path.glob('*'):
 		if not subdir.is_dir():
@@ -126,7 +123,8 @@ def get_direct_subdirs(path:Path)->List[Path]:
 		direct_subdirs.append(subdir)
 	return direct_subdirs
 
-def diff_recursively_with_gists(path: Path, file2gist:Dict[str, List[Gist]]):
+
+def diff_recursively_with_gists(path: Path, file2gist: Dict[str, List[Gist]]):
 	# TODO: this is where the planned "--maxdepth" opt will take effect
 	for file in filter(Path.is_file, path.glob('**/*')):
 		# Skip if ignored
@@ -137,8 +135,9 @@ def diff_recursively_with_gists(path: Path, file2gist:Dict[str, List[Gist]]):
 		matching_gists = file2gist.get(file.name)
 		if not matching_gists:
 			continue
-		matching_gist = get_matching_gist(file.name, matching_gists)
+		matching_gist = reduce_to_single_gist_by_filename(file.name, matching_gists)
 		matching_gist.diff(file)
+
 
 @click.command(context_settings=dict(show_default=True))
 @click.argument('parent_path', required=False, default=Path.cwd(),
@@ -211,7 +210,8 @@ def main(ctx,
 	print(config)
 	print('\n[b]Excluding:[/]')
 	print(tmrignore)
-
+	if not Confirm.ask('Continue?', default=False):
+		return
 	# ** main loop
 	with Live(Spinner('dots9'), refresh_per_second=16) as live:
 		live.stop()
@@ -223,7 +223,6 @@ def main(ctx,
 
 		print()
 
-
 		direct_subdirs = get_direct_subdirs(parent_path)
 		if should_check_gists:
 			logger.debug(f'[#]Diffing gists recursively in {len(direct_subdirs)} threads...[/]')
@@ -234,7 +233,7 @@ def main(ctx,
 
 			with fut.ThreadPoolExecutor(max_workers) as xtr:
 				for subdir in direct_subdirs:
-					xtr.submit(diff_recursively_with_gists,subdir,file2gist)
+					xtr.submit(diff_recursively_with_gists, subdir, file2gist)
 
 		if not should_check_repos:
 			return
@@ -270,12 +269,11 @@ def main(ctx,
 
 		logger.debug(f'[#]Done fetching and git statusing[/]')
 
-
-			# os.chdir(repo.path)
-			# logger.debug(f'\n[b bright_white u]{repo.path.absolute()}[/]\n')
-			# # * fetch and parse status
-			# system.run('git fetch --all --prune --jobs=10', stdout=sp.DEVNULL, stderr=sp.DEVNULL, verbose=config.verbose if config.verbose >= 2 else None)
-			# status = system.run('git status')
+		# os.chdir(repo.path)
+		# logger.debug(f'\n[b bright_white u]{repo.path.absolute()}[/]\n')
+		# # * fetch and parse status
+		# system.run('git fetch --all --prune --jobs=10', stdout=sp.DEVNULL, stderr=sp.DEVNULL, verbose=config.verbose if config.verbose >= 2 else None)
+		# status = system.run('git status')
 		for repo in repos:
 			has_local_modified_files = not repo.status.endswith('nothing to commit, working tree clean')
 			if not has_local_modified_files and 'behind' not in repo.status and 'have diverged' not in repo.status:
@@ -347,7 +345,6 @@ def main(ctx,
 
 			# * end of main loop
 			os.chdir(parent_path)
-
 
 
 def usage(ctx, parent_path):

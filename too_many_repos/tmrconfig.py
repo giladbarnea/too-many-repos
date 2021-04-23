@@ -1,45 +1,100 @@
-from typing import Optional, Literal, Iterable, TypeVar, NoReturn, get_origin, get_args, Union
-
-from too_many_repos.singleton import Singleton
-from too_many_repos.log import logger
-from pathlib import Path
 import sys
+from pathlib import Path
+from typing import Optional, Literal, TypeVar, NoReturn, get_origin, get_args, Union
+
 from click import BadOptionUsage
+
+from too_many_repos.log import logger
+from too_many_repos.singleton import Singleton
 
 CacheMode = Optional[Literal['r', 'w']]
 _O = TypeVar('_O')
 
 from rich.traceback import install
+
 install(extra_lines=5, show_locals=True)
+NoneType = type(None)
+TYPE_VALUES = {
+	bool: ('true', 'false', 'yes', 'no'),
+	NoneType: ('none',None)
+	}
+
+
+def isnum(s: str) -> bool:
+	try:
+		float(s)
+		return True
+	except ValueError:
+		return False
+
 
 # @logurulogger.catch()
 def is_valid(val: Optional[str], type_) -> bool:
-	if isinstance(type_, type):
-		# type_ is e.g. bool, NoneType
-		if isinstance(val, type_):
-			# isintance(None, NoneType) → True
-			return True
+	"""
+	val can be either a string representation of type_, or None.
 
+	type_ can be:
+
+	- type (e.g. bool)
+	- type of type (e.g. NoneType)
+	- value / instance (e.g. None, True, "5")
+	- typing (e.g. Union[...], Literal[...], runs recursively on what they're made of)
+
+	"""
+	if isinstance(type_, type):
+		# * type_ is not value / instance (e.g. bool, NoneType)
+
+		if type_ is NoneType:
+			# is_valid("None", NoneType) → True
+			return val is None or val.lower() == 'none'
+
+		if val is None or val.lower() == 'none':
+			return type_ is NoneType
+
+		# At this point, val is a str
+		val = val.lower()
 		if type_ is bool:
-			return val.lower() in ('true', 'false', '1', '0')
-		if type_ is str:
-			return isinstance(val, str)
-		if type_ is int or type_ is float:
+			return val in TYPE_VALUES[bool]
+
+		if type_ in (int, float):
 			try:
-				# e.g int(val)
+				# e.g int(2)
 				type_(val)
 				return True
 			except (ValueError, TypeError):
-				# Failed converting
+				# ValueError when int("5.5")
 				return False
-		breakpoint()
-		raise NotImplementedError(f"is_valid({val = }, {type_ = })")
+
+		if not type_ is str:
+			# collections (tuple etc)
+			raise NotImplementedError(f"is_valid(val = {repr(val)}, type = {repr(type_)})")
+
+		return not isnum(val) and not any(val in othervalues for othervalues in TYPE_VALUES.values())
 
 	if not hasattr(type_, '__args__'):
-		# type_ is a primitive (e.g None, 'r', 5)
+		# type_ is a value / instance (e.g None, 'r', 5)
 		# It's possible that val is an actual None
+		metatype = type(type_)
+
 		if type_ is None:
-			return val is None
+			# is_valid("None", None) → True
+			return val is None or val.lower() == 'none'
+
+		if val is None or val.lower() == 'none':
+			return type_ is None
+
+		# At this point, val is a str
+		val = val.lower()
+
+		if type_ is True:
+			return val in ('true', 'yes')
+		elif type_ is False:
+			return val in ('false', 'no')
+
+		# if metatype in (int, float):
+		# 	# float("5.5") == 5.5
+		# 	return metatype(val) == type_
+
 
 		# e.g. '5' == str(5)
 		return val == str(type_)
@@ -50,11 +105,12 @@ def is_valid(val: Optional[str], type_) -> bool:
 			return True
 	return False
 
-def cast_type(val: Optional[str], type_: _O)->_O:
+
+def cast_type(val: Optional[str], type_: _O) -> _O:
 	if isinstance(type_, type):
 		# type_ is e.g. bool, NoneType
 		if type_ is bool:
-			if (val:=val.lower()) in ('true', '1'):
+			if (val := val.lower()) in ('true', '1'):
 				return True
 			if val in ('false', '0'):
 				return False
@@ -91,14 +147,15 @@ def cast_type(val: Optional[str], type_: _O)->_O:
 	breakpoint()
 
 
-
 def popopt(opt: str, type_: _O, also_short=False) -> _O:
 	"""
+	Tries to pop opt from sys.argv, validate its value and cast it by type_.
 
 	:param opt: e.g '--verbose'
-	:param type_: e.g. `bool`, `Literal['r', 'w']`, `Optional[Literal[...]]`
+	:param type_: e.g. bool, Literal['r', 'w'], Optional[Literal[...]]
 	:param also_short: look for e.g. '-v'
-	:return:
+	:raises BadOptionUsage if is_valid returns False
+	:return: The type-casted value.
 	"""
 
 	val = None
@@ -151,6 +208,7 @@ class TmrConfig(Singleton):
 	cache_mode: CacheMode
 	cache_path: Path
 	max_threads: Optional[int]
+	max_depth: int
 	gitdir_size_limit_mb: int
 
 	def __init__(self):
@@ -159,6 +217,7 @@ class TmrConfig(Singleton):
 		self.cache_mode: CacheMode = None
 		self.cache_path: Path = None
 		self.max_threads: Optional[int] = None
+		self.max_depth: Optional[int] = None
 		self.gitdir_size_limit_mb: int = 100
 		config_file = Path.home() / '.tmrrc.py'
 		try:
@@ -192,11 +251,16 @@ class TmrConfig(Singleton):
 
 		# * max_threads
 		self._try_set_max_threads_from_sys_args()
+
+		# * max_depth
+		self._try_set_max_depth_from_sys_args()
+
 	def __str__(self):
 		rv = f"TmrConfig()"
 		for key, val in self.__dict__.items():
 			rv += f'\n\tself.{key}: {val}'
 		return rv
+
 	@staticmethod
 	def _get_verbose_level_from_sys_argv() -> Optional[int]:
 		for i, arg in enumerate(sys.argv):
@@ -250,6 +314,14 @@ class TmrConfig(Singleton):
 				logger.warning((f"max_threads was specified both in config and cmd args, and will be overridden "
 								f"by the value passed via cmdline: {max_threads}"))
 			self.max_threads = max_threads
+
+	def _try_set_max_depth_from_sys_args(self) -> NoReturn:
+		max_depth = popopt('--max-depth', Optional[int])
+		if max_depth is not None:
+			if self.max_depth:
+				logger.warning((f"max_depth was specified both in config and cmd args, and will be overridden "
+								f"by the value passed via cmdline: {max_depth}"))
+			self.max_depth = max_depth
 
 
 config = TmrConfig()
