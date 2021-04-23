@@ -27,7 +27,6 @@ def isnum(s: str) -> bool:
 	except ValueError:
 		return False
 
-
 def is_valid(val: Optional[str], type_: Union[Type[None], str, bool, float, int, None]) -> bool:
 	"""
 	val can be either a string representation of type_, or None.
