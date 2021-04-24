@@ -1,9 +1,11 @@
 #!/bin/python3.8
 import os
 import sys
+from collections import defaultdict
 from concurrent import futures as fut
 from datetime import datetime as dt
 from datetime import timedelta
+from multiprocessing import Pool
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -12,7 +14,7 @@ from rich import print
 from rich.prompt import Confirm, Prompt
 
 from too_many_repos import system
-from too_many_repos.gist import get_file2gist_map, Gist
+from too_many_repos.gist import build_filename2gistfiles, Gist, GistFile
 from too_many_repos.log import logger, console
 from too_many_repos.repo import Repo
 from too_many_repos.tmrconfig import config
@@ -120,25 +122,38 @@ def get_direct_subdirs(path: Path) -> List[Path]:
 			continue
 		if tmrignore.is_ignored(subdir):
 			if config.verbose >= 2:  # keep >=2 because prints for all subdirs of excluded
-				logger.warning(f"[b]{subdir}[/b]: skipping; excluded")
+				logger.warning(f"Main | [b]{subdir}[/b]: skipping; excluded")
 		direct_subdirs.append(subdir)
 	return direct_subdirs
 
 
-def diff_recursively_with_gists(path: Path, file2gist: Dict[str, List[Gist]]):
+def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[GistFile]]) -> Dict[Path, List[GistFile]]:
+	"""
+	Goes over files inside path and diffs them against any matching gist.
+
+	Called in a multiprocess context.
+	"""
+	need_user: Dict[Path, List[GistFile]] = defaultdict(list)
 	for file in filter(Path.is_file, path.glob('*/' * config.max_depth)):
-		# Skip if ignored
 		if tmrignore.is_ignored(file):
 			if config.verbose >= 2:  # keep >=2 because prints for all subdirs of excluded
-				logger.warning(f"[b]{file}[/b]: skipping; excluded")
+				logger.warning(f"Main | [b]{file}[/b]: skipping; excluded")
 			continue
-		matching_gists = file2gist.get(file.name)
-		if not matching_gists:
+		gistfiles = filename2gistfiles.get(file.name)
+		if not gistfiles:
 			continue
-		matching_gist = reduce_to_single_gist_by_filename(file, matching_gists)
-		if not matching_gist:
+		if len(gistfiles) > 1:
+			need_user[file].extend(gistfiles)
 			continue
-		matching_gist.diff(file)
+		gistfile = gistfiles[0]
+		gistfile.diffs[file] = gistfile.diff(file)
+	return need_user
+
+
+# matching_gist = reduce_to_single_gist_by_filename(file, gistfiles)
+# if not matching_gist:
+# 	continue
+# matching_gist.diff(file)
 
 
 @click.command(context_settings=dict(show_default=True))
@@ -189,9 +204,6 @@ def main(ctx,
 	git_status_subdirs.py
 	git_status_subdirs.py $HOME -g '**/*' -e dev -vv
 	"""
-	# TODO: practice asyncio or threads when git fetching simult
-	# TODO: if upstream exists, always show it in green
-
 	parent_path = Path(parent_path).absolute()
 	if help:
 		usage(ctx, parent_path)
@@ -211,47 +223,56 @@ def main(ctx,
 	if not Confirm.ask('Continue?', default=False):
 		return
 	# *** main loop
-	repos: List[Repo] = []
-	# ** gists
-	# * get gists
-	if should_check_gists:
-		file2gist = get_file2gist_map()
-		logger.debug(f'[#]Got {len(file2gist)} gists[/]')
 
-	print()
-	# * diff gists
-	direct_subdirs = get_direct_subdirs(parent_path)
+	# ** gists
 	if should_check_gists:
-		logger.info(f'Diffing gists recursively in {len(direct_subdirs)} threads...')
-		max_workers = min((direct_subdirs_len := len(direct_subdirs)), config.max_threads or direct_subdirs_len)
+		# * get gists
+		filename2gistfiles = build_filename2gistfiles()
+		logger.info(f'\nBuilt {len(filename2gistfiles)} gists[/]')
+		print()
+
+		# * diff gists
+
+		direct_subdirs = get_direct_subdirs(parent_path)
+		max_workers = min((direct_subdirs_len := len(direct_subdirs)), config.max_workers or direct_subdirs_len)
+		logger.info(f'\nDiffing gists recursively in {max_workers} threads...')
+		need_user: Dict[Path, List[GistFile]] = defaultdict(list)
+
 		with fut.ThreadPoolExecutor(max_workers) as xtr:
-			xtr.submit(diff_recursively_with_gists, parent_path, file2gist)
 			for subdir in direct_subdirs:
-				xtr.submit(diff_recursively_with_gists, subdir, file2gist)
+				res = xtr.submit(diff_recursively_with_gists, subdir, filename2gistfiles).result()
+				logger.debug(f'[#]Got {len(res)} paths that need user from {subdir}[/]')
+				need_user.update(res)
+		res = diff_recursively_with_gists(parent_path, filename2gistfiles)
+		logger.debug(f'[#]Got {len(res)} paths that need user from {parent_path}[/]')
+		need_user.update(res)
+		logger.debug(f'[#]In total, {len(need_user)} paths need user[/]')
+		# print(need_user)
+		breakpoint()
 
 	# ** repos
 	if not should_check_repos:
 		return
 
-	breakpoint()
+	repos: List[Repo] = []
 	# * populate repos list
 	for repo in filter(Repo.is_repo, map(Repo, parent_path.glob('*/' * config.max_depth))):
 		if repo.is_gitdir_too_big():
-			logger.warning(f"[b]{repo.path}[/b]: skipping; .git dir size is above {config.gitdir_size_limit_mb}MB")
+			logger.warning(f"Main | [b]{repo.path}[/b]: skipping; .git dir size is above {config.gitdir_size_limit_mb}MB")
 			continue
 
 		if tmrignore.is_ignored(repo.path):
-			logger.warning(f"[b]{repo.path}[/b]: ignored")
+			logger.warning(f"Main | [b]{repo.path}[/b]: ignored")
 			continue
 
 		repos.append(repo)
 
 	# * fetch
-	max_workers = min((repos_len:= len(repos)), config.max_threads or repos_len)
+	max_workers = min((repos_len := len(repos)), config.max_workers or repos_len)
 	if not no_fetch:
-		logger.info(f'Fetching {len(repos)} repos in {max_workers} threads...')
-		with fut.ThreadPoolExecutor(max_workers) as xtr:
-			xtr.map(Repo.fetch, repos)
+		logger.info(f'Fetching {len(repos)} repos in {max_workers} processes...')
+		with Pool(max_workers) as pool:
+			pool.map(Repo.fetch, repos)
 
 	# * status
 	logger.info(f'Git status {len(repos)} repos serially...')
@@ -261,14 +282,14 @@ def main(ctx,
 	logger.info(f'Done fetching and git statusing')
 
 	for repo in repos:
-		# * Show status
 		has_local_modified_files = not repo.status.endswith('nothing to commit, working tree clean')
 		if not has_local_modified_files and 'behind' not in repo.status and 'have diverged' not in repo.status:
+			# * Non-actionable; print current state and continue to next repo (no prompts)
 			# nothing modified,
 			msg = f"[good][b]{repo.path}[/b]: nothing modified, "
 			if 'ahead' in repo.status:
 				# nothing modified, but upstream is behind.
-				msg += f"but {repo.status.splitlines()[1]}\n\t"
+				msg += f"but {repo.status.splitlines()[1]}\n\t".replace('ahead', '[b]ahead[/b]')
 			else:
 				# nothing modified, everything up-to-date.
 				msg += "everything up-to-date."
@@ -286,31 +307,24 @@ def main(ctx,
 
 			msg += '[/]'
 			logger.info(msg)
-			# if 'ahead' in status:
-			#     # TODO: in this case there's nothing to push; origin is up to date, upstream isn't
-			#     live.stop()
-			#     currentbranch = run('git rev-parse --abbrev-ref HEAD')
-			#     if Confirm.ask(f'[b bright_magenta]git push origin {currentbranch}?[/]'):
-			#         live.start()
-			#         print('pushing...')
-			#         os.system(f'git push origin {currentbranch}')
-			#         print()
-			#     else:
-			#         live.start()
-			#         print('[warn]not pushing[/]')
 			continue
 
 		# * Interact whether to pull etc; either something modified, or we're behind/ahead, or mine and upstream diverged
 		os.chdir(repo.path)
-		logger.info(f'[prompt]{repo.path}[/]')
+		logger.info(f'\n[prompt]{repo.path}[/]')
 		os.system(f'git status')  # Just to display in terminal
 		print()
 
-
-		if has_local_modified_files and 'behind' in repo.status:  # TODO: don't think there needs to be an 'ahead' check here? not sure
-			# something modified and we're behind/ahead. don't want handle stash etc
-			logger.info(f'[b]{repo.path}[/b]: has local modifications, and is behind')
-			continue
+		if has_local_modified_files:
+			if 'behind' in repo.status:
+				logger.info(f'[b]{repo.path}[/b]: has local modifications, and is behind')
+				continue
+			if 'ahead' in repo.status:
+				if Confirm.ask(f'[prompt][b]{repo.path}[/b]: push origin {repo.remotes.current_branch}?[/]'):
+					logger.info('pushing...')
+					os.system(f'git push origin "{repo.remotes.current_branch}"')
+					print()
+				continue
 
 		# nothing modified, can be pulled
 		if 'ahead' not in repo.status and ('behind' in repo.status or 'have diverged' in repo.status):

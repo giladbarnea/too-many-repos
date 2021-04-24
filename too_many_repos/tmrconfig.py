@@ -191,7 +191,7 @@ def popopt(opt: str, type_: _O, also_short=False) -> _O:
 	return cast
 
 
-def clingy_setattr(obj, attr, val):
+def moms_setattr(obj, attr, val):
 	self_value = getattr(obj, attr)
 	if self_value:
 		logger.warning((f"[b]{obj}.{attr}[/b] was specified both in config and cmd args."
@@ -253,7 +253,7 @@ class TmrConfig(Singleton):
 	cache: CacheConfig
 	# cache_mode: CacheMode
 	# config.cache.path: Path
-	max_threads: Optional[int]
+	max_workers: Optional[int]
 	max_depth: int
 	gitdir_size_limit_mb: int
 
@@ -263,7 +263,7 @@ class TmrConfig(Singleton):
 		self.cache: CacheConfig = CacheConfig()
 		# self.cache_mode: CacheMode = None
 		# self.config.cache.path: Path = None
-		self.max_threads: Optional[int] = None
+		self.max_workers: Optional[int] = None
 		self.max_depth: int = None
 		self.gitdir_size_limit_mb: int = 100
 		tmrrc = Path.home() / '.tmrrc.py'
@@ -275,7 +275,7 @@ class TmrConfig(Singleton):
 
 		self._try_set_cache_mode_from_sys_args()
 
-		self._try_set_max_threads_from_sys_args()
+		self._try_set_max_workers_from_sys_args()
 
 		self._try_set_max_depth_from_sys_args(default=1)
 
@@ -326,32 +326,32 @@ class TmrConfig(Singleton):
 	def _try_set_verbose_level_from_sys_args(self, default=None) -> NoReturn:
 		level = TmrConfig._get_verbose_level_from_sys_argv()
 		if level is None and default is not None:
-			clingy_setattr(self, 'verbose', default)
+			moms_setattr(self, 'verbose', default)
 		if level is not None:
-			clingy_setattr(self, 'verbose', level)
+			moms_setattr(self, 'verbose', level)
 
 	def _try_set_cache_mode_from_sys_args(self, default=None) -> NoReturn:
 		mode = popopt('--cache-mode', CacheMode)
 		if mode is None and default is not None:
-			clingy_setattr(self.cache, 'mode', default)
+			moms_setattr(self.cache, 'mode', default)
 		if mode is not None:
-			clingy_setattr(self.cache, 'mode', mode)
+			moms_setattr(self.cache, 'mode', mode)
 
-	def _try_set_max_threads_from_sys_args(self, default=None) -> NoReturn:
-		max_threads = popopt('--max-threads', Optional[int])
-		if max_threads is None and default is not None:
-			clingy_setattr(self, 'max_threads', default)
+	def _try_set_max_workers_from_sys_args(self, default=None) -> NoReturn:
+		max_workers = popopt('--max-workers', Optional[int])
+		if max_workers is None and default is not None:
+			moms_setattr(self, 'max_workers', default)
 
-		if max_threads is not None:
-			clingy_setattr(self, 'max_threads', max_threads)
+		if max_workers is not None:
+			moms_setattr(self, 'max_workers', max_workers)
 
 	def _try_set_max_depth_from_sys_args(self, default=None) -> NoReturn:
 		max_depth = popopt('--max-depth', Optional[int])
 		if max_depth is None and default is not None:
-			clingy_setattr(self, 'max_depth', default)
+			moms_setattr(self, 'max_depth', default)
 
 		if max_depth is not None:
-			clingy_setattr(self, 'max_depth', max_depth)
+			moms_setattr(self, 'max_depth', max_depth)
 
 
 config = TmrConfig()

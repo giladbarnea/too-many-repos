@@ -29,7 +29,6 @@ class Ignorable:
 		Normalizes the values the are passed to constructor to either str or re.Pattern.
 		In case an `Ignorable` is passed to constructor, it itself is returned (avoiding recursion).
 		"""
-		# print(f"__new__({value = })")
 		if isinstance(value, Ignorable):
 			return value
 		self = super().__new__(cls)
@@ -48,7 +47,6 @@ class Ignorable:
 		return f'{self.__class__.__qualname__}({self._val})'
 
 	def _init_(self, value: Union[re.Pattern, str]) -> None:
-		# print(f'_init_({value = })')
 		self._val = value
 
 	def exists(self) -> bool:
@@ -117,18 +115,22 @@ class TmrIgnore(Set[Ignorable], Singleton):
 			self.add(element)
 
 	def update_from_file(self, ignorefile: Path):
+		def exc_fmt(_e):
+			return f"{_e.__class__.__qualname__} when handling {ignorefile}: {_e}"
 		entries = set()
 		try:
 			entries |= set(map(str.strip, ignorefile.open().readlines()))
 		except FileNotFoundError as fnfe:
 			if config.verbose >= 2:
-				logger.warning(f"FileNotFoundError when handling {ignorefile}: {', '.join((map(str, fnfe.args)))}")
+				logger.warning(exc_fmt(fnfe))
 		except Exception as e:
-			logger.warning(f"{e.__class__.__qualname__} when handling {ignorefile}: {', '.join((map(str, e.args)))}")
+			logger.warning(exc_fmt(e))
 		else:
 			logger.info(f"[good]Loaded ignore file successfully: {ignorefile}[/]")
 
 		for exclude in entries:
+			if exclude.startswith('#'):
+				continue
 			self.add(exclude)
 
 

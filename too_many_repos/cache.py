@@ -33,24 +33,24 @@ class Cache(Singleton):
 	@staticmethod
 	def get_gist_filenames(gist_id: str) -> Optional[List[str]]:
 		gist_filenames = safe_load(f'gist_{gist_id}_filenames')
-		logger.debug(f'[#]Cache | filenames of {gist_id} → {"None" if gist_filenames is None else "OK"}')
+		logger.debug(f'[#]Cache | filenames of {gist_id[:8]} → {"None" if gist_filenames is None else "OK"}')
 		return gist_filenames
 
 	@staticmethod
 	def set_gist_filenames(gist_id: str, gist_filenames: List[str]):
-		logger.debug(f'[#]Cache | writing filenames of {gist_id} to file')
+		logger.debug(f'[#]Cache | writing filenames of {gist_id[:8]} to file')
 		with (config.cache.path / f'gist_{gist_id}_filenames.pickle').open(mode='w+b') as gist_filenames_cache:
 			pickle.dump(gist_filenames, gist_filenames_cache)
 
 	@staticmethod
 	def get_gist_file_content(gist_id: str, file_name: str) -> Optional[str]:
 		gist_file_content = safe_load(f'gist_{gist_id}_{file_name}')
-		logger.debug(f'[#]Cache | file contents of {file_name} of {gist_id} → {"None" if gist_file_content is None else "OK"}')
+		logger.debug(f'[#]Cache | file contents of [b]{file_name}[/b] of {gist_id[:8]} → {"None" if gist_file_content is None else "OK"}')
 		return gist_file_content
 
 	@staticmethod
 	def set_gist_file_content(gist_id: str, file_name: str, gist_file_content: List[str]):
-		logger.debug(f'[#]Cache | writing file contents of {file_name} of {gist_id} to file')
+		logger.debug(f'[#]Cache | writing file contents of [b]{file_name}[/b] of {gist_id[:8]} to file')
 		with (config.cache.path / f'gist_{gist_id}_{file_name}.pickle').open(mode='w+b') as gist_file_content_cache:
 			pickle.dump(gist_file_content, gist_file_content_cache)
 
