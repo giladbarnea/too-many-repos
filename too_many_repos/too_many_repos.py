@@ -5,13 +5,11 @@ from concurrent import futures as fut
 from datetime import datetime as dt
 from datetime import timedelta
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import click
 from rich import print
-from rich.live import Live
-from rich.prompt import Confirm, IntPrompt
-from rich.spinner import Spinner
+from rich.prompt import Confirm, Prompt
 
 from too_many_repos import system
 from too_many_repos.gist import get_file2gist_map, Gist
@@ -100,15 +98,18 @@ def diff_gist(entry: Path, gist: Gist, live, quiet):
 		logger.info(f"[good][b]{entry.absolute()}[/b]: file and gist {gist.id[:16]} ('{gist.description[:32]}') file are identical[/]")
 
 
-def reduce_to_single_gist_by_filename(file_name: str, matching_gists: List[Gist]) -> Gist:
+def reduce_to_single_gist_by_filename(file: Path, matching_gists: List[Gist]) -> Optional[Gist]:
 	if len(matching_gists) == 1:
 		gist = matching_gists[0]
 	else:
-		prompt = f"[i]{file_name}[/i] | What gist?\n"
+		prompt = f"[i]{file.absolute()}[/i] | What gist?\n"
 		for i, gist in enumerate(matching_gists, start=1):
-			prompt += f"[{i}] {gist}\n"
-		gist_idx = IntPrompt.ask(prompt, choices=list(map(str, range(1, len(matching_gists) + 1))), console=console)
-		gist = matching_gists[gist_idx - 1]
+			prompt += f"{i}] {gist}\n"
+		prompt += f"s] skip\n"
+		answer = Prompt.ask(prompt, choices=list(map(str, range(1, len(matching_gists) + 1))) + ['s'], console=console)
+		if answer == 's':
+			return None
+		gist = matching_gists[int(answer) - 1]
 	return gist
 
 
@@ -125,8 +126,7 @@ def get_direct_subdirs(path: Path) -> List[Path]:
 
 
 def diff_recursively_with_gists(path: Path, file2gist: Dict[str, List[Gist]]):
-	# TODO: this is where the planned "--maxdepth" opt will take effect
-	for file in filter(Path.is_file, path.glob('**/*')):
+	for file in filter(Path.is_file, path.glob('*/' * config.max_depth)):
 		# Skip if ignored
 		if tmrignore.is_ignored(file):
 			if config.verbose >= 2:  # keep >=2 because prints for all subdirs of excluded
@@ -135,16 +135,15 @@ def diff_recursively_with_gists(path: Path, file2gist: Dict[str, List[Gist]]):
 		matching_gists = file2gist.get(file.name)
 		if not matching_gists:
 			continue
-		matching_gist = reduce_to_single_gist_by_filename(file.name, matching_gists)
+		matching_gist = reduce_to_single_gist_by_filename(file, matching_gists)
+		if not matching_gist:
+			continue
 		matching_gist.diff(file)
 
 
 @click.command(context_settings=dict(show_default=True))
 @click.argument('parent_path', required=False, default=Path.cwd(),
 				type=click.Path(exists=True, dir_okay=True, readable=True))
-@click.option('-g', '--glob', metavar='GLOB',
-			  required=False, default='*',
-			  help='Script iterates PARENT_PATH.glob(GLOB)')
 @click.option('-e', '--exclude', 'exclude_these', metavar='STRING_OR_ADV_REGEX',
 			  required=False, type=str, multiple=True,
 			  help='\n'.join(('\b',
@@ -167,7 +166,6 @@ def diff_recursively_with_gists(path: Path, file2gist: Dict[str, List[Gist]]):
 @click.pass_context
 def main(ctx,
 		 parent_path: Path,
-		 glob: str,
 		 exclude_these: tuple,
 		 gitdir_size_limit: int,
 		 help: bool,
@@ -201,150 +199,135 @@ def main(ctx,
 	tmrignore.update(*exclude_these)
 	tmrignore.update_from_file(parent_path)
 
-	logger.debug((f"{parent_path = }, {glob = },\n"
+	logger.debug((f"{parent_path = },\n"
 				  f"{gitdir_size_limit = },\n"
 				  f"{should_check_gists = },\n"
 				  f"{should_check_repos = },\n"
 				  f"{quiet = }"))
-	print('\n[b]config:[/]')
-	print(config)
 	print('\n[b]Excluding:[/]')
 	print(tmrignore)
+	print('\n[b]config:[/]')
+	print(config)
 	if not Confirm.ask('Continue?', default=False):
 		return
-	# ** main loop
-	with Live(Spinner('dots9'), refresh_per_second=16) as live:
-		live.stop()
-		repos: List[Repo] = []
-		# * parse gists
-		if should_check_gists:
-			file2gist = get_file2gist_map()
-			logger.debug(f'[#]Got {len(file2gist)} gists[/]')
+	# *** main loop
+	repos: List[Repo] = []
+	# ** gists
+	# * get gists
+	if should_check_gists:
+		file2gist = get_file2gist_map()
+		logger.debug(f'[#]Got {len(file2gist)} gists[/]')
 
+	print()
+	# * diff gists
+	direct_subdirs = get_direct_subdirs(parent_path)
+	if should_check_gists:
+		logger.info(f'Diffing gists recursively in {len(direct_subdirs)} threads...')
+		max_workers = min((direct_subdirs_len := len(direct_subdirs)), config.max_threads or direct_subdirs_len)
+		with fut.ThreadPoolExecutor(max_workers) as xtr:
+			xtr.submit(diff_recursively_with_gists, parent_path, file2gist)
+			for subdir in direct_subdirs:
+				xtr.submit(diff_recursively_with_gists, subdir, file2gist)
+
+	# ** repos
+	if not should_check_repos:
+		return
+
+	breakpoint()
+	# * populate repos list
+	for repo in filter(Repo.is_repo, map(Repo, parent_path.glob('*/' * config.max_depth))):
+		if repo.is_gitdir_too_big():
+			logger.warning(f"[b]{repo.path}[/b]: skipping; .git dir size is above {config.gitdir_size_limit_mb}MB")
+			continue
+
+		if tmrignore.is_ignored(repo.path):
+			logger.warning(f"[b]{repo.path}[/b]: ignored")
+			continue
+
+		repos.append(repo)
+
+	# * fetch
+	max_workers = min((repos_len:= len(repos)), config.max_threads or repos_len)
+	if not no_fetch:
+		logger.info(f'Fetching {len(repos)} repos in {max_workers} threads...')
+		with fut.ThreadPoolExecutor(max_workers) as xtr:
+			xtr.map(Repo.fetch, repos)
+
+	# * status
+	logger.info(f'Git status {len(repos)} repos serially...')
+	for repo in repos:
+		repo.popuplate_status()
+
+	logger.info(f'Done fetching and git statusing')
+
+	for repo in repos:
+		# * Show status
+		has_local_modified_files = not repo.status.endswith('nothing to commit, working tree clean')
+		if not has_local_modified_files and 'behind' not in repo.status and 'have diverged' not in repo.status:
+			# nothing modified,
+			msg = f"[good][b]{repo.path}[/b]: nothing modified, "
+			if 'ahead' in repo.status:
+				# nothing modified, but upstream is behind.
+				msg += f"but {repo.status.splitlines()[1]}\n\t"
+			else:
+				# nothing modified, everything up-to-date.
+				msg += "everything up-to-date."
+
+			repo.popuplate_remotes()
+			remotes = repo.remotes
+
+			if remotes.origin:
+				msg += f' [b]origin[/b]: [i]{remotes.origin}[/i].'
+			if remotes.upstream:
+				# I forked it
+				msg += f' [b]upstream[/b]: [i]{remotes.upstream}[/i].'
+			if remotes.tracking:
+				msg += f' [b]tracking[/b]: [i]{remotes.tracking}[/i]'
+
+			msg += '[/]'
+			logger.info(msg)
+			# if 'ahead' in status:
+			#     # TODO: in this case there's nothing to push; origin is up to date, upstream isn't
+			#     live.stop()
+			#     currentbranch = run('git rev-parse --abbrev-ref HEAD')
+			#     if Confirm.ask(f'[b bright_magenta]git push origin {currentbranch}?[/]'):
+			#         live.start()
+			#         print('pushing...')
+			#         os.system(f'git push origin {currentbranch}')
+			#         print()
+			#     else:
+			#         live.start()
+			#         print('[warn]not pushing[/]')
+			continue
+
+		# * Interact whether to pull etc; either something modified, or we're behind/ahead, or mine and upstream diverged
+		os.chdir(repo.path)
+		logger.info(f'[prompt]{repo.path}[/]')
+		os.system(f'git status')  # Just to display in terminal
 		print()
 
-		direct_subdirs = get_direct_subdirs(parent_path)
-		if should_check_gists:
-			logger.debug(f'[#]Diffing gists recursively in {len(direct_subdirs)} threads...[/]')
-			if config.max_threads:
-				max_workers = min(config.max_threads, len(direct_subdirs))
+
+		if has_local_modified_files and 'behind' in repo.status:  # TODO: don't think there needs to be an 'ahead' check here? not sure
+			# something modified and we're behind/ahead. don't want handle stash etc
+			logger.info(f'[b]{repo.path}[/b]: has local modifications, and is behind')
+			continue
+
+		# nothing modified, can be pulled
+		if 'ahead' not in repo.status and ('behind' in repo.status or 'have diverged' in repo.status):
+			# TODO: is it always true that no local modified files here?
+			if quiet:
+				logger.info("[prompt]Would've prompted git pull, but quiet=True")
 			else:
-				max_workers = len(direct_subdirs)
 
-			with fut.ThreadPoolExecutor(max_workers) as xtr:
-				for subdir in direct_subdirs:
-					xtr.submit(diff_recursively_with_gists, subdir, file2gist)
-
-		if not should_check_repos:
-			return
-
-		for repo in filter(Repo.is_repo, map(Repo, parent_path.glob(glob))):
-
-			# * Repo
-			# Skip if .git dir size is too big
-			if repo.is_gitdir_too_big():
-				logger.warning(f"[b]{repo.path}[/b]: skipping; .git dir size is above {config.gitdir_size_limit_mb}MB")
-				continue
-
-			# Skip if ignored
-			if tmrignore.is_ignored(repo.path):
-				logger.warning(f"[b]{repo.path}[/b]: ignored")
-				continue
-
-			repos.append(repo)
-
-		if config.max_threads:
-			max_workers = min(config.max_threads, len(repos))
-		else:
-			max_workers = len(repos)
-
-		if not no_fetch:
-			logger.debug(f'[#]Fetching {len(repos)} repos in {max_workers} threads...[/]')
-			with fut.ThreadPoolExecutor(max_workers) as xtr:
-				xtr.map(Repo.fetch, repos)
-
-		logger.debug(f'[#]Git status {len(repos)} repos serially...[/]')
-		for repo in repos:
-			repo.popuplate_status()
-
-		logger.debug(f'[#]Done fetching and git statusing[/]')
-
-		# os.chdir(repo.path)
-		# logger.debug(f'\n[b bright_white u]{repo.path.absolute()}[/]\n')
-		# # * fetch and parse status
-		# system.run('git fetch --all --prune --jobs=10', stdout=sp.DEVNULL, stderr=sp.DEVNULL, verbose=config.verbose if config.verbose >= 2 else None)
-		# status = system.run('git status')
-		for repo in repos:
-			has_local_modified_files = not repo.status.endswith('nothing to commit, working tree clean')
-			if not has_local_modified_files and 'behind' not in repo.status and 'have diverged' not in repo.status:
-				# nothing modified,
-				msg = f"[good][b]{repo.path}[/b]: nothing modified, "
-				if 'ahead' in repo.status:
-					# nothing modified, but upstream is behind.
-					msg += f"but {repo.status.splitlines()[1]}\n\t"
+				if Confirm.ask(f'[prompt][b]{repo.path}[/b]: git pull?[/]'):
+					logger.info('pulling...')
+					os.system('git pull')
+					print()
 				else:
-					# nothing modified, everything up-to-date.
-					msg += "everything up-to-date."
+					logger.warning('not pulling')
 
-				repo.popuplate_remotes()
-				remotes = repo.remotes
-
-				if remotes.origin:
-					msg += f' [b]origin[/b]: [i]{remotes.origin}[/i].'
-				if remotes.upstream:
-					# I forked it
-					msg += f' [b]upstream[/b]: [i]{remotes.upstream}[/i].'
-				if remotes.tracking:
-					msg += f' [b]tracking[/b]: [i]{remotes.tracking}[/i]'
-
-				msg += '[/]'
-				logger.info(msg)
-				# if 'ahead' in status:
-				#     # TODO: in this case there's nothing to push; origin is up to date, upstream isn't
-				#     live.stop()
-				#     currentbranch = run('git rev-parse --abbrev-ref HEAD')
-				#     if Confirm.ask(f'[b bright_magenta]git push origin {currentbranch}?[/]'):
-				#         live.start()
-				#         print('pushing...')
-				#         os.system(f'git push origin {currentbranch}')
-				#         print()
-				#     else:
-				#         live.start()
-				#         print('[warn]not pushing[/]')
-				continue
-
-			# * Either something modified, or we're behind/ahead, or mine and upstream diverged
-
-			# Just to display in terminal
-			os.chdir(repo.path)
-			logger.info(f'[prompt]{repo.path}[/]')
-			os.system(f'git status')
-			print()
-
-			if has_local_modified_files and 'behind' in repo.status:  # TODO: don't think there needs to be an 'ahead' check here? not sure
-				# something modified and we're behind/ahead. don't want handle stash etc
-				logger.info(f'[b]{repo.path}[/b]: has local modifications, and is behind')
-				continue
-
-			# nothing modified, can be pulled
-			if 'ahead' not in repo.status and ('behind' in repo.status or 'have diverged' in repo.status):
-				# TODO: is it always true that no local modified files here?
-				if quiet:
-					logger.info("[prompt]Would've prompted git pull, but quiet=True")
-				else:
-					live.stop()
-
-					if Confirm.ask(f'[prompt][b]{repo.path}[/b]: git pull?[/]'):
-						# live.start()
-						logger.info('pulling...')
-						os.system('git pull')
-						print()
-					else:
-						# live.start()
-						logger.warning('not pulling')
-
-			# * end of main loop
-			os.chdir(parent_path)
+		# * end of main loop
+		os.chdir(parent_path)
 
 
 def usage(ctx, parent_path):

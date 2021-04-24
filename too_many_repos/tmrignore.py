@@ -88,7 +88,7 @@ class TmrIgnore(Set[Ignorable], Singleton):
 
 	def __repr__(self) -> str:
 		items_str = []
-		for ignored in self:
+		for ignored in sorted(self, key=lambda x:str(x)):
 			s = str(ignored)
 			if isinstance(ignored._val, re.Pattern):
 				items_str.append(s)

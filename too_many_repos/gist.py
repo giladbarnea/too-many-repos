@@ -11,7 +11,7 @@ from too_many_repos.tmrconfig import config
 from too_many_repos.tmrignore import tmrignore
 
 
-class File:
+class GistFile:
 	content: str = ''
 	diff: bool
 
@@ -23,7 +23,7 @@ class Gist:
 	filecount: Any
 	permissions: Literal['secret', 'public']
 	date: str
-	files: Dict[str, File] = field(default_factory=dict)
+	files: Dict[str, GistFile] = field(default_factory=dict)
 
 	def __str__(self):
 		return f"{self.id[:16]} '{self.description}' ({self.filecount} files)"
@@ -37,21 +37,24 @@ class Gist:
 	def _get_file_names(self) -> List[str]:
 		"""Calls `gh gist view "{self.id}" --files` to get this gist's list of file names.
 		May use cache."""
-		if config.cache_mode == 'r' and (filenames := cache.get_gist_filenames(self.id)) is not None:
+		if config.cache.mode in ('r', 'r+w') and \
+				config.cache.gist_filenames and \
+				(filenames := cache.get_gist_filenames(self.id)) is not None:
 			return filenames
-		view_process = system.popen(f'gh gist view "{self.id}" --files', verbose=config.verbose)
-		filenames = view_process.communicate()[0].decode().splitlines()
-		if config.cache_mode == 'w':
+		filenames = system.run(f'gh gist view "{self.id}" --files').splitlines()
+		if config.cache.mode in ('w', 'r+w') and config.cache.gist_filenames:
 			cache.set_gist_filenames(self.id, filenames)
 		return filenames
 
 	def _get_file_content(self, file_name) -> str:
 		"""Calls `gh gist view '{self.id}' -f '{file_name}'` to get the file's content.
 		May use cache."""
-		if config.cache_mode == 'r' and (file_content := cache.get_gist_file_content(self.id, file_name)) is not None:
+		if config.cache.mode in ('r', 'r+w') and \
+				config.cache.gist_content and \
+				(file_content := cache.get_gist_file_content(self.id, file_name)) is not None:
 			return file_content
-		content = system.run(f"gh gist view '{self.id}' -f '{file_name}'", verbose=config.verbose)
-		if config.cache_mode == 'w':
+		content = system.run(f"gh gist view '{self.id}' -f '{file_name}'")
+		if config.cache.mode in ('w', 'r+w') and config.cache.gist_content:
 			cache.set_gist_file_content(self.id, file_name, content)
 		return content
 
@@ -64,13 +67,12 @@ class Gist:
 		Called by get_file2gist_map() in a threaded context."""
 		filenames = self._get_file_names()
 		for name in filenames:
-			file = File()
-			if is_ignored := tmrignore.is_ignored(name) and skip_ignored:
+			file = GistFile()
+			if tmrignore.is_ignored(name) and skip_ignored:
 				logger.warning(f"gist file [b]'{name}'[/b] of {self.short()}: skipping; excluded")
 				continue
-			file.ignored = is_ignored
 			self.files[name] = file
-		logger.debug(f"[#][b]{self.short()}[/b] built {len(self.files)} files[/]")
+		logger.debug(f"[#]Gist: [b]{self.short()}[/b] built {len(self.files)} files[/]")
 
 	def popuplate_files_content(self) -> NoReturn:
 		"""
@@ -83,14 +85,14 @@ class Gist:
 		for name, file in self.files.items():
 			content = self._get_file_content(name)
 			file.content = content
-		logger.debug(f"[#][b]{self.short()}[/b] populated files content[/]")
+		logger.debug(f"[#]Gist: [b]{self.short()}[/b] populated files content[/]")
 
 	def diff(self, path: Path) -> bool:
 		"""Returns Whether the stripped contents of `path` and this gist's respective file are different.
 
 		Sets `file.diff` attribute."""
-		logger.debug(f'[#]diffing {path}...')
-		gist_file: File = self.files.get(path.name)
+		logger.debug(f'[#]Gist: diffing {path}...')
+		gist_file: GistFile = self.files.get(path.name)
 		tmp_gist_path = f'/tmp/{self.id}_{path.name}'
 		with open(tmp_gist_path, mode='w') as tmp:
 			tmp.write(gist_file.content)
@@ -100,6 +102,9 @@ class Gist:
 		with open(tmp_file_path, mode='w') as tmp:
 			tmp.write('\n'.join(filter(bool, map(str.strip, path.open().readlines()))))
 
+		if path.open().readlines() == list(map(str.strip, path.open().readlines())) or \
+				gist_file.content.splitlines() == list(map(str.strip, gist_file.content.splitlines())):
+			breakpoint()
 		diff = system.run(f'diff -ZbwBu --strip-trailing-cr --suppress-blank-empty "{tmp_gist_path}" "{tmp_file_path}"')
 		if not diff:
 			logger.info(f"[good][b]Diff {path.absolute()}[/b]: file and [b]{self.short()}[/b] file are identical[/]")
@@ -129,32 +134,29 @@ class Gist:
 # 		finally:
 # 			self._content = stripped_content
 # 	return self._content
-def get_gh_gist_list() -> List[str]:
+def get_gist_list() -> List[str]:
 	"""Calls `gh gist list -L 100` to get the list of gists.
 	May use cache."""
-	if config.cache_mode == 'r' and (gh_gist_list := cache.gh_gist_list) is not None:
-		return gh_gist_list
-	gh_gist_list = system.run('gh gist list -L 100', verbose=config.verbose).splitlines()  # not safe
-	if config.cache_mode == 'w':
-		cache.gh_gist_list = gh_gist_list
-	return gh_gist_list
+	if config.cache.mode in ('r', 'r+w') and \
+			config.cache.gist_list and \
+			(gist_list := cache.gist_list) is not None:
+		return gist_list
+	gist_list = system.run('gh gist list -L 100').splitlines()  # not safe
+	if config.cache.mode in ('w', 'r+w') and config.cache.gist_list:
+		cache.gist_list = gist_list
+	return gist_list
 
 
 def get_file2gist_map() -> Dict[str, List[Gist]]:
-	logger.debug('[#]Getting gists...[/]')
-	# if config.cache_mode == 'r' and (file2gist_map := cache.file2gist_map) is not None:
-	# 	return file2gist_map
+	logger.info('Getting gists...')
 	file2gist: Dict[str, List[Gist]] = defaultdict(list)
 	gists: List[Gist] = []
-	gh_gist_list: List[str] = get_gh_gist_list()
+	gist_list: List[str] = get_gist_list()
 
 	# * gist.build_self_files()
-	if config.max_threads:
-		max_workers = min(config.max_threads, len(gh_gist_list))
-	else:
-		max_workers = len(gh_gist_list)
+	max_workers = min((gist_list_len := len(gist_list)), config.max_threads or gist_list_len)
 	with fut.ThreadPoolExecutor(max_workers) as executor:
-		for gist_str in gh_gist_list:
+		for gist_str in gist_list:
 			gist = Gist(*gist_str.split('\t'))
 
 			# There shouldn't be many false positives, because description includes

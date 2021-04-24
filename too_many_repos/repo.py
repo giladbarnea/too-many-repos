@@ -34,12 +34,12 @@ class Repo:
     def fetch(self) -> NoReturn:
         with visit_dir(self.path):
             logger.debug(f'git fetch in {self.path}...')
-            system.run('git fetch --all --prune --jobs=10', stdout=sp.DEVNULL, stderr=sp.DEVNULL, verbose=config.verbose)
+            system.run('git fetch --all --prune --jobs=10', stdout=sp.DEVNULL, stderr=sp.DEVNULL)
 
     def popuplate_status(self) -> NoReturn:
         with visit_dir(self.path):
             logger.debug(f'git status in {self.path}...')
-            status = system.run('git status', verbose=config.verbose)
+            status = system.run('git status')
         self.status = status
 
 

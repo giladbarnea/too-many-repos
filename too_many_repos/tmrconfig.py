@@ -1,4 +1,5 @@
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Literal, TypeVar, NoReturn, get_origin, get_args, Union, Type
 
@@ -6,14 +7,16 @@ from click import BadOptionUsage
 
 from too_many_repos.log import logger
 from too_many_repos.singleton import Singleton
+from too_many_repos.util import exec_file
 
-CacheMode = Optional[Literal['r', 'w']]
+CacheMode = Optional[Literal['r', 'w', 'r+w']]
 _O = TypeVar('_O')
 
 from rich.traceback import install
 
 install(extra_lines=5, show_locals=True)
 NoneType = type(None)
+UNSET = object()
 TYPE_VALUES = {
 	bool:     ('true', 'false', 'yes', 'no'),
 	NoneType: ('none', None)
@@ -26,6 +29,7 @@ def isnum(s: str) -> bool:
 		return True
 	except ValueError:
 		return False
+
 
 def is_valid(val: Optional[str], type_: Union[Type[None], str, bool, float, int, None]) -> bool:
 	"""
@@ -86,7 +90,6 @@ def is_valid(val: Optional[str], type_: Union[Type[None], str, bool, float, int,
 		elif type_ is False:
 			return val in ('false', 'no')
 
-
 		# e.g. '5' == str(5)
 		return val == str(type_)
 
@@ -131,8 +134,6 @@ def cast_type(val: Optional[str], type_: _O) -> _O:
 	return type(type_)(val)
 
 
-
-
 def popopt(opt: str, type_: _O, also_short=False) -> _O:
 	"""
 	Tries to pop opt from sys.argv, validate its value and cast it by type_.
@@ -173,6 +174,7 @@ def popopt(opt: str, type_: _O, also_short=False) -> _O:
 			sys.argv.pop(i)
 			try:
 				val = sys.argv[i]
+				sys.argv.pop(i)
 			except IndexError:
 				# e.g. --opt (no value)
 				if isinstance(type_, bool):
@@ -189,10 +191,68 @@ def popopt(opt: str, type_: _O, also_short=False) -> _O:
 	return cast
 
 
+def clingy_setattr(obj, attr, val):
+	self_value = getattr(obj, attr)
+	if self_value:
+		logger.warning((f"[b]{obj}.{attr}[/b] was specified both in config and cmd args."
+						f" config val ({self_value}) will be overridden "
+						f"by the value passed via cmdline: {val}"))
+	setattr(obj, attr, val)
+
+
+@dataclass
+class CacheConfig:
+	"""
+	Mode dictates what to do with individual settings.
+	If unspecified (default), cache is completely disabled.
+
+	If mode is specified ('r' or 'w'), individual settings that were
+	unspecified (default) are set to True.
+	"""
+	gist_list: Optional[bool] = None
+	gist_filenames: Optional[bool] = None
+	gist_content: Optional[bool] = None
+	_mode: CacheMode = None
+	_path: Path = None
+
+	@property
+	def path(self):
+		return self._path
+
+	@path.setter
+	def path(self, path: Union[str, Path]):
+		self._path = Path(path)
+		if not self._path.is_dir():
+			self._path.mkdir(parents=True)
+
+	@property
+	def mode(self):
+		return self._mode
+
+	@mode.setter
+	def mode(self, mode: CacheMode):
+		self._mode = mode
+		if self._mode is None:
+			self.gist_list = None
+			self.gist_filenames = None
+			self.gist_content = None
+		else:
+			if self.gist_list is None:
+				self.gist_list = True
+			if self.gist_filenames is None:
+				self.gist_filenames = True
+			if self.gist_content is None:
+				self.gist_content = True
+
+	def __post_init__(self):
+		self.path = Path.home() / '.cache/too-many-repos'
+
+
 class TmrConfig(Singleton):
 	verbose: int
-	cache_mode: CacheMode
-	cache_path: Path
+	cache: CacheConfig
+	# cache_mode: CacheMode
+	# config.cache.path: Path
 	max_threads: Optional[int]
 	max_depth: int
 	gitdir_size_limit_mb: int
@@ -200,46 +260,24 @@ class TmrConfig(Singleton):
 	def __init__(self):
 		super().__init__()
 		self.verbose = 0
-		self.cache_mode: CacheMode = None
-		self.cache_path: Path = None
+		self.cache: CacheConfig = CacheConfig()
+		# self.cache_mode: CacheMode = None
+		# self.config.cache.path: Path = None
 		self.max_threads: Optional[int] = None
-		self.max_depth: Optional[int] = None
+		self.max_depth: int = None
 		self.gitdir_size_limit_mb: int = 100
-		config_file = Path.home() / '.tmrrc.py'
-		try:
-			exec(compile(config_file.open().read(), config_file, 'exec'), dict(tmr=self))
-		except FileNotFoundError as e:
-			logger.warning(f"conifg: Did not find {Path.home() / '.tmrrc.py'}")
-		else:
-			logger.debug(f"[good]Loaded config file successfully: {config_file}[/]")
+		tmrrc = Path.home() / '.tmrrc.py'
+		exec_file(tmrrc, dict(config=self))
 
 		# ** At this point, self.* attrs may have loaded values from file
-		# * cache_path
-		if self.cache_path is not None:
-			self.cache_path = Path(self.cache_path)
-			if not self.cache_path.is_dir():
-				raise NotADirectoryError(f"config: specified cache_path = {self.cache_path} is not a directory")
-		else:
-			self.cache_path = Path.home() / '.cache/too-many-repos'
-			if not self.cache_path.is_dir():
-				self.cache_path.mkdir(parents=True)
 
-		# * verbose
-		verbose_from_sys_argv = TmrConfig._get_verbose_level_from_sys_argv()
-		if verbose_from_sys_argv is not None:
-			if self.verbose:
-				logger.warning((f"verbose level was specified both in config and cmd args, and will be overridden "
-								f"by the value passed via cmdline: {verbose_from_sys_argv}"))
-			self.verbose = verbose_from_sys_argv
+		self._try_set_verbose_level_from_sys_args()
 
-		# * cache_mode
 		self._try_set_cache_mode_from_sys_args()
 
-		# * max_threads
 		self._try_set_max_threads_from_sys_args()
 
-		# * max_depth
-		self._try_set_max_depth_from_sys_args()
+		self._try_set_max_depth_from_sys_args(default=1)
 
 	def __str__(self):
 		rv = f"TmrConfig()"
@@ -285,29 +323,35 @@ class TmrConfig(Singleton):
 				return level
 		return None
 
-	def _try_set_cache_mode_from_sys_args(self) -> NoReturn:
+	def _try_set_verbose_level_from_sys_args(self, default=None) -> NoReturn:
+		level = TmrConfig._get_verbose_level_from_sys_argv()
+		if level is None and default is not None:
+			clingy_setattr(self, 'verbose', default)
+		if level is not None:
+			clingy_setattr(self, 'verbose', level)
+
+	def _try_set_cache_mode_from_sys_args(self, default=None) -> NoReturn:
 		mode = popopt('--cache-mode', CacheMode)
+		if mode is None and default is not None:
+			clingy_setattr(self.cache, 'mode', default)
 		if mode is not None:
-			if self.cache_mode:
-				logger.warning((f"cache mode was specified both in config and cmd args, and will be overridden "
-								f"by the value passed via cmdline: {mode}"))
-			self.cache_mode = mode
+			clingy_setattr(self.cache, 'mode', mode)
 
-	def _try_set_max_threads_from_sys_args(self) -> NoReturn:
+	def _try_set_max_threads_from_sys_args(self, default=None) -> NoReturn:
 		max_threads = popopt('--max-threads', Optional[int])
-		if max_threads is not None:
-			if self.max_threads:
-				logger.warning((f"max_threads was specified both in config and cmd args, and will be overridden "
-								f"by the value passed via cmdline: {max_threads}"))
-			self.max_threads = max_threads
+		if max_threads is None and default is not None:
+			clingy_setattr(self, 'max_threads', default)
 
-	def _try_set_max_depth_from_sys_args(self) -> NoReturn:
+		if max_threads is not None:
+			clingy_setattr(self, 'max_threads', max_threads)
+
+	def _try_set_max_depth_from_sys_args(self, default=None) -> NoReturn:
 		max_depth = popopt('--max-depth', Optional[int])
+		if max_depth is None and default is not None:
+			clingy_setattr(self, 'max_depth', default)
+
 		if max_depth is not None:
-			if self.max_depth:
-				logger.warning((f"max_depth was specified both in config and cmd args, and will be overridden "
-								f"by the value passed via cmdline: {max_depth}"))
-			self.max_depth = max_depth
+			clingy_setattr(self, 'max_depth', max_depth)
 
 
 config = TmrConfig()
