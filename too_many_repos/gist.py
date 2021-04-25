@@ -40,11 +40,13 @@ class GistFile:
 
 		# Strip the contents of the local file and save it to a tmp file
 		tmp_file_path = f'/tmp/{path.name}.gist{path.suffix}'
+		path_readlines = path.open().readlines()
 		with open(tmp_file_path, mode='w') as tmp:
-			tmp.write('\n'.join(filter(bool, map(str.strip, path.open().readlines()))))
+			tmp.write('\n'.join(filter(bool, map(str.rstrip, path_readlines))))
 
-		if path.open().readlines() == set(map(str.strip, path.open().readlines())) or \
-				self.content.splitlines() == set(map(str.strip, self.content.splitlines())):
+		self_content_splitlines = self.content.splitlines()
+		if path_readlines == set(filter(bool,map(str.rstrip, path_readlines))) or \
+				self_content_splitlines == set(self_content_splitlines):
 			breakpoint()
 		diff = system.run(f'diff -ZbwBu --strip-trailing-cr --suppress-blank-empty "{tmp_gist_path}" "{tmp_file_path}"')
 		return bool(diff)
@@ -119,7 +121,7 @@ class Gist:
 		"""
 		for name, file in self.files.items():
 			content = self._get_file_content(name)
-			file.content = content
+			file.content = '\n'.join(filter(bool, map(str.rstrip, content.splitlines())))
 		logger.debug(f"[#]Gist: [b]{self.short()}[/b] populated files content[/]")
 
 

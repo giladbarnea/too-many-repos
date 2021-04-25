@@ -117,17 +117,16 @@ def reduce_to_single_gist_by_filename(file: Path, matching_gists: List[Gist]) ->
 
 def get_direct_subdirs(path: Path) -> List[Path]:
 	direct_subdirs = []
-	for subdir in path.glob('*'):
-		if not subdir.is_dir():
-			continue
+	for subdir in filter(Path.is_dir, path.glob('*')):
 		if tmrignore.is_ignored(subdir.absolute()):
 			if config.verbose >= 2:  # keep >=2 because prints for all subdirs of excluded
 				logger.warning(f"Main | [b]{subdir}[/b]: skipping; excluded")
+			continue
 		direct_subdirs.append(subdir)
 	return direct_subdirs
 
 
-def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[GistFile]]) -> Dict[Path, List[GistFile]]:
+def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[GistFile]], max_depth) -> Dict[Path, List[GistFile]]:
 	"""
 	Goes over files inside path and diffs them against any matching gist.
 
@@ -135,7 +134,7 @@ def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[G
 	"""
 	# TODO (bug): when max_depth is > 1, even if foo/ is ignored, each if its subpaths are iterated.
 	need_user: Dict[Path, List[GistFile]] = defaultdict(list)
-	for file in filter(Path.is_file, path.glob('*/' * config.max_depth)):
+	for file in filter(Path.is_file, path.glob('*/' * max_depth)):
 		if tmrignore.is_ignored(file.absolute()):
 			if config.verbose >= 2:  # keep >=2 because prints for all subdirs of excluded
 				logger.warning(f"Main | [b]{file}[/b]: skipping; excluded")
@@ -241,10 +240,10 @@ def main(ctx,
 
 		with fut.ThreadPoolExecutor(max_workers) as xtr:
 			for subdir in direct_subdirs:
-				res = xtr.submit(diff_recursively_with_gists, subdir, filename2gistfiles).result()
+				res = xtr.submit(diff_recursively_with_gists, subdir, filename2gistfiles, max_depth=config.max_depth).result()
 				logger.debug(f'[#]Got {len(res)} paths that need user from {subdir}[/]')
 				need_user.update(res)
-		res = diff_recursively_with_gists(parent_path, filename2gistfiles)
+		res = diff_recursively_with_gists(parent_path, filename2gistfiles, max_depth=1)
 		logger.debug(f'[#]Got {len(res)} paths that need user from {parent_path}[/]')
 		need_user.update(res)
 		logger.debug(f'[#]In total, {len(need_user)} paths need user[/]')
@@ -257,8 +256,8 @@ def main(ctx,
 					else:
 						logger.info(f"[b]Diff {path.absolute()}[/b]: and [b]{gistfile.gist.short()}[/b] are [b green]identical[/]")
 
-		if need_user:
-			breakpoint()
+		# if need_user:
+		# 	breakpoint()
 
 	# ** repos
 	if not should_check_repos:
