@@ -120,7 +120,7 @@ def get_direct_subdirs(path: Path) -> List[Path]:
 	for subdir in path.glob('*'):
 		if not subdir.is_dir():
 			continue
-		if tmrignore.is_ignored(subdir):
+		if tmrignore.is_ignored(subdir.absolute()):
 			if config.verbose >= 2:  # keep >=2 because prints for all subdirs of excluded
 				logger.warning(f"Main | [b]{subdir}[/b]: skipping; excluded")
 		direct_subdirs.append(subdir)
@@ -133,9 +133,10 @@ def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[G
 
 	Called in a multiprocess context.
 	"""
+	# TODO (bug): when max_depth is > 1, even if foo/ is ignored, each if its subpaths are iterated.
 	need_user: Dict[Path, List[GistFile]] = defaultdict(list)
 	for file in filter(Path.is_file, path.glob('*/' * config.max_depth)):
-		if tmrignore.is_ignored(file):
+		if tmrignore.is_ignored(file.absolute()):
 			if config.verbose >= 2:  # keep >=2 because prints for all subdirs of excluded
 				logger.warning(f"Main | [b]{file}[/b]: skipping; excluded")
 			continue
@@ -228,7 +229,7 @@ def main(ctx,
 	if should_check_gists:
 		# * get gists
 		filename2gistfiles = build_filename2gistfiles()
-		logger.info(f'\nBuilt {len(filename2gistfiles)} gists[/]')
+		logger.info(f'\nBuilt {len(filename2gistfiles)} gists')
 		print()
 
 		# * diff gists
@@ -247,8 +248,17 @@ def main(ctx,
 		logger.debug(f'[#]Got {len(res)} paths that need user from {parent_path}[/]')
 		need_user.update(res)
 		logger.debug(f'[#]In total, {len(need_user)} paths need user[/]')
-		# print(need_user)
-		breakpoint()
+
+		for filename, gistfiles in filename2gistfiles.items():
+			for gistfile in gistfiles:
+				for path, is_different in gistfile.diffs.items():
+					if is_different:
+						logger.info(f"[b]Diff {path.absolute()}[/b]: and [b]{gistfile.gist.short()}[/b] are [b yellow]different[/]")
+					else:
+						logger.info(f"[b]Diff {path.absolute()}[/b]: and [b]{gistfile.gist.short()}[/b] are [b green]identical[/]")
+
+		if need_user:
+			breakpoint()
 
 	# ** repos
 	if not should_check_repos:

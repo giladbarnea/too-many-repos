@@ -48,15 +48,6 @@ class GistFile:
 			breakpoint()
 		diff = system.run(f'diff -ZbwBu --strip-trailing-cr --suppress-blank-empty "{tmp_gist_path}" "{tmp_file_path}"')
 		return bool(diff)
-		# if not diff:
-		# 	# logger.info(f"[good][b]Diff {path.absolute()}[/b]: and [b]{self.gist.short()}[/b] file are identical[/]")
-		# 	self.diff = False
-		# 	return False
-		#
-		# # prompt = f"[warn][b]Diff {path.absolute()}[/b]: and [b]{self.gist.short()}[/b] are [b]different[/]"
-		# # logger.info(prompt)
-		# self.diff = True
-		# return True
 
 
 @dataclass
@@ -131,35 +122,6 @@ class Gist:
 			file.content = content
 		logger.debug(f"[#]Gist: [b]{self.short()}[/b] populated files content[/]")
 
-	# def diff(self, path: Path) -> bool:
-	# 	"""Returns Whether the stripped contents of `path` and this gist's respective file are different.
-	#
-	# 	Sets `file.diff` attribute."""
-	# 	logger.debug(f'[#]Gist: diffing {path}...')
-	# 	gist_file: GistFile = self.files.get(path.name)
-	# 	tmp_gist_path = f'/tmp/{self.id}_{path.name}'
-	# 	with open(tmp_gist_path, mode='w') as tmp:
-	# 		tmp.write(gist_file.content)
-	#
-	# 	# Strip the contents of the local file and save it to a tmp file
-	# 	tmp_file_path = f'/tmp/{path.name}.gist{path.suffix}'
-	# 	with open(tmp_file_path, mode='w') as tmp:
-	# 		tmp.write('\n'.join(filter(bool, map(str.strip, path.open().readlines()))))
-	#
-	# 	if path.open().readlines() == list(map(str.strip, path.open().readlines())) or \
-	# 			gist_file.content.splitlines() == list(map(str.strip, gist_file.content.splitlines())):
-	# 		breakpoint()
-	# 	diff = system.run(f'diff -ZbwBu --strip-trailing-cr --suppress-blank-empty "{tmp_gist_path}" "{tmp_file_path}"')
-	# 	if not diff:
-	# 		logger.info(f"[good][b]Diff {path.absolute()}[/b]: and [b]{self.short()}[/b] file are identical[/]")
-	# 		gist_file.diff = False
-	# 		return False
-	#
-	# 	prompt = f"[warn][b]Diff {path.absolute()}[/b]: and [b]{self.short()}[/b] are [b]different[/]"
-	# 	logger.info(prompt)
-	# 	gist_file.diff = True
-	# 	return True
-
 
 # @property
 # def content(self) -> str:
@@ -195,13 +157,13 @@ def build_filename2gistfiles() -> Dict[str, List[GistFile]]:
 	"""
 	Maps the names of the GistFiles to their actual GistFiles.
 	"""
-	logger.info('\nGeting list of gists...')
+	logger.info('\nGetting list of gists...')
 	filename2gistfiles: Dict[str, List[GistFile]] = defaultdict(list)
 	gists: List[Gist] = []
 	gist_list: List[str] = get_gist_list()
 
 	# * files = gh gist view ... --files
-	logger.info('\nGeting list of files for each gist...')
+	logger.info('\nGetting list of files for each gist...')
 	max_workers = min((gist_list_len := len(gist_list)), config.max_workers or gist_list_len)
 	with fut.ThreadPoolExecutor(max_workers) as executor:
 		for gist_str in gist_list:
@@ -218,7 +180,7 @@ def build_filename2gistfiles() -> Dict[str, List[GistFile]]:
 			gists.append(gist)
 
 	# * file.content = gh gist view ... -f <NAME>
-	logger.info('\nPopulating contents of all files...')
+	logger.info('\nPopulating contents of all gist files...')
 	with fut.ThreadPoolExecutor(max_workers) as executor:
 		for gist in gists:
 			for name, gistfile in gist.files.items():
