@@ -263,6 +263,7 @@ class TmrConfig(Singleton):
 	max_workers: Optional[int]
 	max_depth: int
 	gitdir_size_limit_mb: int
+	difftool: str
 
 	def __init__(self):
 		super().__init__()
@@ -283,6 +284,8 @@ class TmrConfig(Singleton):
 		self._try_set_max_workers_from_sys_args(default=None)
 
 		self._try_set_max_depth_from_sys_args(default=1)
+
+		_try_set_opt_from_sys_args(self, 'difftool', type_=Optional[str], default='diff')
 
 	def __repr__(self):
 		rv = f"TmrConfig()"

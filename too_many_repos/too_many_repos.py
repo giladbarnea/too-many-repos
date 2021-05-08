@@ -84,9 +84,9 @@ def diff_gist(entry: Path, gist: Gist, live, quiet):
 				else:
 					time_diff = f'{td.seconds} seconds'
 
-				prompt += f"; [b]{'local' if local_is_newer else 'gist'}[/b] is newer by {time_diff}[/]"
+				prompt += f"; [b]{'local' if local_is_newer else 'gist'}[/b] is newer by {time_diff}"
 			else:
-				prompt += f"(less than 5 seconds apart)[/]"
+				prompt += f"(less than 5 seconds apart)"
 		logger.info(prompt)
 		if quiet:
 			logger.info("[prompt]Would've prompted show diff, but quiet=True")
@@ -304,7 +304,10 @@ def main(
 						logger.info(f"[b]Diff {path.absolute()}[/b]: and [b]{gistfile.gist.short()}[/b] are [b yellow]different in {difference}[/]")
 						if Confirm.ask('Show diff?'):
 							# breakpoint()
-							os.system(f'"{config.difftool}" "{path}" "{gistfile.tmp_path}"')
+							if config.difftool in ('meld', ):
+								os.system(f'nohup "{config.difftool}" "{path}" "{gistfile.tmp_path}" &>/dev/null &')
+							else:
+								os.system(f'"{config.difftool}" "{path}" "{gistfile.tmp_path}"')
 							# if difference == 'content':
 							# 	os.system(f'"{config.difftool}" "{path}" "{gistfile.tmp_path}"')
 							# else:  # 'whitespace'

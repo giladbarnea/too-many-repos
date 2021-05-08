@@ -42,6 +42,14 @@ class Ignorable:
 			self._init_(value)
 		return self
 
+	def __eq__(self, o: object) -> bool:
+		if isinstance(o, Ignorable):
+			return self._val == o._val
+		return self._val == o
+
+	def __hash__(self) -> int:
+		return hash(self._val)
+
 	def __str__(self) -> str:
 		return str(self._val)
 
@@ -81,9 +89,10 @@ class Ignorable:
 
 class TmrIgnore(Set[Ignorable], Singleton):
 
-	def __init__(self, iterable: Iterable[IgnorableType] = ()) -> None:
-		for element in iterable:
-			self.add(element)
+	def __init__(self) -> None:
+		# for element in iterable:
+		# 	self.add(element)
+		super().__init__()
 		self.update_from_file(Path.home() / '.tmrignore')
 
 	def __repr__(self) -> str:
@@ -104,11 +113,13 @@ class TmrIgnore(Set[Ignorable], Singleton):
 		return False
 
 	def add(self, element: IgnorableType) -> None:
+		if not element:
+			return
 		ignorable = Ignorable(element)
-		if not ignorable:
-			# Shouldn't happen
-			breakpoint()
+		ignorable_was_in_self = ignorable in self
 		super().add(ignorable)
+		# if ignorable_was_in_self:
+		# 	breakpoint()
 		# if config.verbose >= 2 and not ignorable.exists():
 		# 	logger.warning(f"Does not exist: {ignorable}")
 

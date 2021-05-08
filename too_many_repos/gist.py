@@ -77,7 +77,11 @@ class GistFile:
 		elif different_as_is:
 			difference = 'whitespace'
 		else:
+
 			difference = False
+		if difference and set(self.stripped_content.splitlines()) == set(stripped_against_lines):
+			# This mean file content is the same just order of lines is different
+			breakpoint()
 		self.diffs[against] = difference
 
 
@@ -138,7 +142,7 @@ class Gist:
 				continue
 			file = GistFile(name, self)
 			self.files[name] = file
-		logger.debug(f"Gist | [b]{self.short()}[/b] built {len(self.files)} files[/]")
+		logger.debug(f"Gist | [b]{self.short()}[/b] built {len(self.files)} files")
 
 	def popuplate_files_content(self) -> NoReturn:
 		"""
@@ -152,7 +156,7 @@ class Gist:
 			content = self._get_file_content(name)
 			file.content = content
 			file.stripped_content = '\n'.join(filter(bool, map(str.rstrip, content.splitlines())))
-		logger.debug(f"Gist | [b]{self.short()}[/b] populated files content[/]")
+		logger.debug(f"Gist | [b]{self.short()}[/b] populated files content")
 
 
 # @property

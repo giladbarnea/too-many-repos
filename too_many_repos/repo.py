@@ -30,7 +30,7 @@ def is_repo(path: Path) -> bool:
 		if not gitdir.is_dir():
 			return False
 	except PermissionError:
-		logger.warning(f"[b]{gitdir}[/b]: PermissionError[/]")
+		logger.warning(f"[b]{gitdir}[/b]: PermissionError")
 		return False
 	for subdir in ('info', 'refs'):
 		if not (gitdir / subdir).is_dir():
