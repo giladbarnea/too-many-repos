@@ -1,13 +1,14 @@
 #!/bin/python3.8
 import os
+import re
 import sys
 from collections import defaultdict
 from concurrent import futures as fut
 from datetime import datetime as dt
 from datetime import timedelta
-from multiprocessing import Pool
+from multiprocessing import Pool as ProcPool
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, NoReturn
 
 import click
 from rich import print
@@ -16,15 +17,17 @@ from rich.prompt import Confirm, Prompt
 from too_many_repos import system
 from too_many_repos.gist import build_filename2gistfiles, Gist, GistFile
 from too_many_repos.log import logger, console
-from too_many_repos.repo import Repo
+from too_many_repos.repo import Repo, is_repo
 from too_many_repos.tmrconfig import config
 from too_many_repos.tmrignore import tmrignore
+from too_many_repos.util import unrequired_opt
 
 THIS_FILE_STEM = Path(__file__).stem
 
 
+# noinspection PyUnresolvedReferences,PyTypeChecker
 def diff_gist(entry: Path, gist: Gist, live, quiet):
-	logger.debug(f'[#]diffing {entry}...')
+	logger.debug(f'diffing {entry}...')
 	tmp_stripped_gist_file_path = f'/tmp/{gist.id}'
 	# gist_content = system.run(f"gh gist view '{gist.id}'", verbose=config.verbose).splitlines()
 	# gist_description = id2props[gist.id].get('description', '')
@@ -51,7 +54,7 @@ def diff_gist(entry: Path, gist: Gist, live, quiet):
 	diff = system.run(f'diff -ZbwBu --strip-trailing-cr --suppress-blank-empty "{tmp_stripped_gist_file_path}" "{tmp_stripped_file_path}"')
 	if diff:
 		# gist_date = id2props[gist_id].get('date')
-		prompt = f"[warn][b]{entry.absolute()}[/b]: file and gist {gist.id} ('{gist.description[:32]}') are different"
+		prompt = f"[b]{entry.absolute()}[/b]: file and gist {gist.id} ('{gist.description[:32]}') are different"
 		try:
 			# noinspection PyUnresolvedReferences
 			from dateutil.parser import parse as parsedate
@@ -97,7 +100,7 @@ def diff_gist(entry: Path, gist: Gist, live, quiet):
 				os.system(f'diff -ZuB --strip-trailing-cr "{tmp_stripped_gist_file_path}" "{entry.absolute()}" | delta')
 			live.start()
 	else:
-		logger.info(f"[good][b]{entry.absolute()}[/b]: file and gist {gist.id[:16]} ('{gist.description[:32]}') file are identical[/]")
+		logger.good(f"[b]{entry.absolute()}[/b]: file and gist {gist.id[:16]} ('{gist.description[:32]}') file are identical")
 
 
 def reduce_to_single_gist_by_filename(file: Path, matching_gists: List[Gist]) -> Optional[Gist]:
@@ -126,28 +129,72 @@ def get_direct_subdirs(path: Path) -> List[Path]:
 	return direct_subdirs
 
 
-def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[GistFile]], max_depth) -> Dict[Path, List[GistFile]]:
+def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[GistFile]], *, max_depth) -> Dict[Path, List[GistFile]]:
 	"""
 	Goes over files inside path and diffs them against any matching gist.
 
 	Called in a multiprocess context.
 	"""
 	# TODO (bug): when max_depth is > 1, even if foo/ is ignored, each if its subpaths are iterated.
+	if max_depth <= 0:
+		config.verbose >= 3 and logger.debug(f'Main | Reached {max_depth = } in {path}')
+		return defaultdict(list)
+
+	# Even though is_ignored() is slow~, better to check before recursing down
+	if tmrignore.is_ignored(path.absolute()):
+		config.verbose >= 2 and logger.warning(f"Main | [b]{path}[/b]: skipping; excluded")
+		return defaultdict(list)
 	need_user: Dict[Path, List[GistFile]] = defaultdict(list)
-	for file in filter(Path.is_file, path.glob('*/' * max_depth)):
-		if tmrignore.is_ignored(file.absolute()):
-			if config.verbose >= 2:  # keep >=2 because prints for all subdirs of excluded
-				logger.warning(f"Main | [b]{file}[/b]: skipping; excluded")
+	config.verbose >= 3 and logger.debug(f'Main | Looking for gists to diff inside {path}...')
+
+	for subpath in path.glob('*'):
+		if subpath.is_dir():
+			update = diff_recursively_with_gists(subpath, filename2gistfiles, max_depth=max_depth - 1)
+			if update:
+				need_user.update(update)
 			continue
-		gistfiles = filename2gistfiles.get(file.name)
-		if not gistfiles:
-			continue
-		if len(gistfiles) > 1:
-			need_user[file].extend(gistfiles)
-			continue
-		gistfile = gistfiles[0]
-		gistfile.diffs[file] = gistfile.diff(file)
+		if subpath.is_file():
+			# subdirs are checked recursively
+			if tmrignore.is_ignored(subpath.absolute()):
+				config.verbose >= 3 and logger.warning(f"Main | [b]{subpath}[/b]: skipping; excluded")
+				continue
+			file = subpath
+			config.verbose >= 3 and logger.debug(f'Main | checking if there a matching gist to {file}...')
+			gistfiles = filename2gistfiles.get(file.name)
+			if not gistfiles:
+				continue
+			if len(gistfiles) > 1:
+				need_user[file].extend(gistfiles)
+				continue
+			gistfile = gistfiles[0]
+			# gistfile.diffs[file] = gistfile.diff(file)
+			gistfile.diff(file)
 	return need_user
+
+
+def populate_repos_recursively(path: Path, repos: List[Repo], *, max_depth) -> NoReturn:
+	config.verbose >= 3 and logger.debug(f'Main | Populating repos inside {path}...')
+	if max_depth <= 0:
+		config.verbose >= 3 and logger.debug(f'Main | Reached {max_depth = } in {path}')
+		return
+	if path.is_file():
+		config.verbose >= 3 and logger.debug(f'Main | {path} is a file')
+		return
+
+	if tmrignore.is_ignored(path.absolute()):
+		config.verbose >= 2 and logger.warning(f"Main | [b]{path}[/b]: skipping; excluded")
+		return
+
+	if is_repo(path):
+		repo = Repo(path)
+
+		if repo.is_gitdir_too_big():
+			logger.warning(f"Main | [b]{repo.path}[/b]: skipping; .git dir size is above {config.gitdir_size_limit_mb}MB")
+		else:
+			repos.append(repo)
+
+	for subpath in path.glob('*'):
+		populate_repos_recursively(subpath, repos, max_depth=max_depth - 1)
 
 
 # matching_gist = reduce_to_single_gist_by_filename(file, gistfiles)
@@ -156,40 +203,45 @@ def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[G
 # matching_gist.diff(file)
 
 
-@click.command(context_settings=dict(show_default=True))
+@click.command()
 @click.argument('parent_path', required=False, default=Path.cwd(),
 				type=click.Path(exists=True, dir_okay=True, readable=True))
-@click.option('-e', '--exclude', 'exclude_these', metavar='STRING_OR_ADV_REGEX',
-			  required=False, type=str, multiple=True,
-			  help='\n'.join(('\b',
-							  'Filters directories and gists.',
-							  'To exclude dirs:',
-							  'Can be bare ("myprojects"), which skips a dir if any of its parts match; ',
-							  'Composed ("myprojects/myrepo"), which skips a dir if a substring matches; ',
-							  'Absolute ("/home/myself/myprojects"), which skips a a dir if it startswith.',
-							  'To exclude gists, a full gist id or a file name can be specified.',
-							  'To exclude directories or gists with regex:',
-							  "`re.search` is used against the gist id, description and file names, and against the dir's abs path.",)
-							 ))
-@click.option('--gitdir-size-limit', required=False, default=100, metavar='SIZE_MB',
-			  help='A dir is skipped if its .git dir size >= SIZE_MB')
-@click.option('-h', '--help', is_flag=True)
-@click.option('-q', '--quiet', is_flag=True)
-@click.option('--gists', 'should_check_gists', is_flag=True, help='Look for local files that match files in own gists and diff them')
-@click.option('--repos/--no-repos', 'should_check_repos', default=True)
-@click.option('--no-fetch', is_flag=True, default=False)
+@unrequired_opt('-e', '--exclude', 'exclude_these', metavar='STRING_OR_ADV_REGEX',
+				multiple=True, type=str,
+				help='\n'.join(['\b',
+								'Filters out directories and gists.',
+								'[b]Excluding PATHS by specifying:[/b]',
+								'- Can be bare ("myprojects"), which skips a dir if any of its parts match; ',
+								'- Composed ("myprojects/myrepo"), which skips a dir if a substring matches; ',
+								'- Absolute ("/home/myself/myprojects"), which skips a a dir if it startswith.',
+								'[b]Excluding GISTS by specifying:[/b]',
+								'- File name (will not ignore other files in same gist)',
+								'- Gist id',
+								'- Gist description (or part of it)',
+								'To exclude directories or gists with REGEX:',
+								"See [b]Ignore and configuration files section[/b] for examples.", ]
+							   ))
+@unrequired_opt('--gitdir-size-limit', default=100, metavar='SIZE_MB',
+				help='A dir is skipped if its .git dir size >= SIZE_MB')
+@unrequired_opt('-q', '--quiet', is_flag=True)
+@unrequired_opt('--gists', 'should_check_gists', is_flag=True, help='Look for local files that match files in own gists and diff them')
+@unrequired_opt('--repos/--no-repos', 'should_check_repos', default=True, help="Don't do any work with git repositories")
+@unrequired_opt('--no-fetch', is_flag=True, help="Don't fetch before working on a repo")
+@click.option('-h', '--help', is_flag=True, help='Show this message and exit.')
 @click.pass_context
-def main(ctx,
-		 parent_path: Path,
-		 exclude_these: tuple,
-		 gitdir_size_limit: int,
-		 help: bool,
-		 should_check_gists: bool = False,
-		 should_check_repos: bool = True,
-		 quiet: bool = False,
-		 no_fetch: bool = False):
+def main(
+		ctx,
+		parent_path: Path,
+		exclude_these: tuple,
+		gitdir_size_limit: int,
+		should_check_gists: bool = False,
+		should_check_repos: bool = True,
+		quiet: bool = False,
+		no_fetch: bool = False,
+		help: bool = False,
+		):
 	"""
-	Runs `git fetch --all --prune --jobs=10; git status` in each subdir of PARENT_PATH that:
+	Fetches, gets remotes, and parses output of `git status` in each subdir of PARENT_PATH that:
 
 	\b
 	1. is a git repo;
@@ -201,15 +253,15 @@ def main(ctx,
 	Examples:
 
 	\b
-	git_status_subdirs.py
-	git_status_subdirs.py $HOME -g '**/*' -e dev -vv
+	`git_status_subdirs.py`
+	`git_status_subdirs.py $HOME -g '**/*' -e dev -vv`
 	"""
 	parent_path = Path(parent_path).absolute()
 	if help:
 		usage(ctx, parent_path)
 		sys.exit()
 	tmrignore.update(*exclude_these)
-	tmrignore.update_from_file(parent_path)
+	tmrignore.update_from_file(parent_path / '.tmrignore')
 
 	logger.debug((f"{parent_path = },\n"
 				  f"{gitdir_size_limit = },\n"
@@ -228,36 +280,40 @@ def main(ctx,
 	if should_check_gists:
 		# * get gists
 		filename2gistfiles = build_filename2gistfiles()
-		logger.info(f'\nBuilt {len(filename2gistfiles)} gists')
-		print()
+		logger.info(f'\nMain | Built {len(filename2gistfiles)} gists\n')
 
-		# * diff gists
-
+		# * populate gist.files
 		direct_subdirs = get_direct_subdirs(parent_path)
 		max_workers = min((direct_subdirs_len := len(direct_subdirs)), config.max_workers or direct_subdirs_len)
-		logger.info(f'\nDiffing gists recursively in {max_workers} threads...')
+		logger.info(f'\nMain | Diffing gists recursively in {max_workers} threads...')
 		need_user: Dict[Path, List[GistFile]] = defaultdict(list)
-
 		with fut.ThreadPoolExecutor(max_workers) as xtr:
 			for subdir in direct_subdirs:
 				res = xtr.submit(diff_recursively_with_gists, subdir, filename2gistfiles, max_depth=config.max_depth).result()
-				logger.debug(f'[#]Got {len(res)} paths that need user from {subdir}[/]')
+				logger.debug(f'Got {len(res)} paths that need user from {subdir}')
 				need_user.update(res)
 		res = diff_recursively_with_gists(parent_path, filename2gistfiles, max_depth=1)
-		logger.debug(f'[#]Got {len(res)} paths that need user from {parent_path}[/]')
+		logger.debug(f'Main | Got {len(res)} paths that need user from {parent_path}')
 		need_user.update(res)
-		logger.debug(f'[#]In total, {len(need_user)} paths need user[/]')
+		logger.debug(f'Main | In total, {len(need_user)} paths need user')
 
 		for filename, gistfiles in filename2gistfiles.items():
 			for gistfile in gistfiles:
-				for path, is_different in gistfile.diffs.items():
-					if is_different:
-						logger.info(f"[b]Diff {path.absolute()}[/b]: and [b]{gistfile.gist.short()}[/b] are [b yellow]different[/]")
+				for path, difference in gistfile.diffs.items():
+					if difference:
+						logger.info(f"[b]Diff {path.absolute()}[/b]: and [b]{gistfile.gist.short()}[/b] are [b yellow]different in {difference}[/]")
+						if Confirm.ask('Show diff?'):
+							# breakpoint()
+							os.system(f'"{config.difftool}" "{path}" "{gistfile.tmp_path}"')
+							# if difference == 'content':
+							# 	os.system(f'"{config.difftool}" "{path}" "{gistfile.tmp_path}"')
+							# else:  # 'whitespace'
+							# 	os.system(f'"{config.difftool}" "{path}" "{gistfile.tmp_path}"')
 					else:
 						logger.info(f"[b]Diff {path.absolute()}[/b]: and [b]{gistfile.gist.short()}[/b] are [b green]identical[/]")
 
-		# if need_user:
-		# 	breakpoint()
+	# if need_user:
+	# 	breakpoint()
 
 	# ** repos
 	if not should_check_repos:
@@ -265,37 +321,28 @@ def main(ctx,
 
 	repos: List[Repo] = []
 	# * populate repos list
-	for repo in filter(Repo.is_repo, map(Repo, parent_path.glob('*/' * config.max_depth))):
-		if repo.is_gitdir_too_big():
-			logger.warning(f"Main | [b]{repo.path}[/b]: skipping; .git dir size is above {config.gitdir_size_limit_mb}MB")
-			continue
-
-		if tmrignore.is_ignored(repo.path):
-			logger.warning(f"Main | [b]{repo.path}[/b]: ignored")
-			continue
-
-		repos.append(repo)
+	populate_repos_recursively(parent_path, repos, max_depth=config.max_depth)
 
 	# * fetch
 	max_workers = min((repos_len := len(repos)), config.max_workers or repos_len)
 	if not no_fetch:
-		logger.info(f'Fetching {len(repos)} repos in {max_workers} processes...')
-		with Pool(max_workers) as pool:
+		logger.info(f'Main | Fetching {len(repos)} repos in {max_workers} processes...')
+		with ProcPool(max_workers) as pool:
 			pool.map(Repo.fetch, repos)
 
 	# * status
-	logger.info(f'Git status {len(repos)} repos serially...')
+	logger.info(f'Main | Git status {len(repos)} repos serially...')
 	for repo in repos:
 		repo.popuplate_status()
 
-	logger.info(f'Done fetching and git statusing')
+	logger.info(f'Main | Done fetching and git statusing')
 
 	for repo in repos:
 		has_local_modified_files = not repo.status.endswith('nothing to commit, working tree clean')
 		if not has_local_modified_files and 'behind' not in repo.status and 'have diverged' not in repo.status:
 			# * Non-actionable; print current state and continue to next repo (no prompts)
 			# nothing modified,
-			msg = f"[good][b]{repo.path}[/b]: nothing modified, "
+			msg = f"[b]{repo.path}[/b]: nothing modified, "
 			if 'ahead' in repo.status:
 				# nothing modified, but upstream is behind.
 				msg += f"but {repo.status.splitlines()[1]}\n\t".replace('ahead', '[b]ahead[/b]')
@@ -314,8 +361,7 @@ def main(ctx,
 			if remotes.tracking:
 				msg += f' [b]tracking[/b]: [i]{remotes.tracking}[/i]'
 
-			msg += '[/]'
-			logger.info(msg)
+			logger.good(msg)
 			continue
 
 		# * Interact whether to pull etc; either something modified, or we're behind/ahead, or mine and upstream diverged
@@ -353,16 +399,80 @@ def main(ctx,
 		os.chdir(parent_path)
 
 
-def usage(ctx, parent_path):
+def usage(ctx, parent_path: Path):
 	helpstr = main.get_help(ctx)
-	helpstr += f"""\n\n.tmrignore Files:
-    Honors .tmrignore files in {parent_path} and {Path.home()} (if exist).
-    Each line is processed as if passed via EXCLUDE option.
-    """
+	helplines = helpstr.splitlines()
+	title = helplines[0]
+	rest = '\n'.join(helplines[1:])
+	h1 = lambda x: f'[b rgb(200,150,255)]{x}[/b rgb(200,150,255)]'
+	h2 = lambda x: f'[b rgb(150,200,255)]{x}[/]'
+	h3 = lambda x: f'[b]{x}[/b]'
+	code = lambda x: f'[rgb(180,180,180) on rgb(30,30,30)]{x}[/rgb(180,180,180) on rgb(30,30,30)]'
+	kw = lambda x: f'[i rgb(180,180,180)]{x}[/i rgb(180,180,180)]'
+	arg = lambda x: f'[rgb(180,180,180)]{x}[/rgb(180,180,180)]'
+	d = lambda x: f'[dim]{x}[/dim]'
+	ta = lambda x: f'[dim i]{x}[/dim i]'
+	helpstr = '\n'.join([
+		'\n' + h1(title),
+		rest,
+		f'  -v, --verbose LEVEL: INT\t  Can be specified e.g -vvv [default: 0]',
+		f'  --cache-mode MODE: STR\t  "r", "w", or "r+w" [default: None]',
+		f'  --max-workers LIMIT: INT\t  Limit threads and processes [default: None]',
+		f'  --max-depth DEPTH: INT\t  [default: 1]',
+		f'',
+		h1(".tmrignore and .tmrrc.py files"),
+		*'\n  '.join(
+				[f"  Looked for in PARENT_PATH ({parent_path}) and HOME ({Path.home()}).\n",
+				 h2(".tmrignore"),
+				 "Each line is a STRING_OR_ADV_REGEX and is processed as if passed via EXCLUDE option.",
+				 "Lines that start with `#` are not parsed.\n",
+				 h3("Example .tmrignore:"),
+				 f"{d(1)} `/mnt/.*`",
+				 d(2),
+				 f"{d(3)} `# .profile (gist id)`",
+				 f"{d(4)} `c123f45ce6fc789c0dfef1234fd5bcb6`",
+				 f"{d(5)} `{Path.home().parts[2]}/Music`",
+				 d(6),
+				 f"{d(7)} `# .gist description`",
+				 f"{d(8)} Visual Studio Code Settings",
+				 f"{d(9)} foo\-\d{{4}}\n",
 
-	from rich import inspect
+				 h2(".tmrrc.py"),
+				 f"A file containing a `config` object "
+				 f"with the following settable attributes:",
+				 f"`config.verbose`: int = 0",
+				 f"`config.max_workers`: int = None",
+				 f"`config.max_depth`: int = 1",
+				 f"`config.gitdir_size_limit_mb`: int = 100",
+				 f"`config.cache.mode`: 'r' | 'w' | 'r+w' = None",
+				 f"`config.cache.path`: str = '{Path.home()}/.cache/too-many-repos'",
+				 f"`config.cache.gist_list`: bool = None",
+				 f"`config.cache.gist_filenames`: bool = None",
+				 f"`config.cache.gist_content`: bool = None\n",
+				 "Note that cmdline opts have priority over settings in .tmrrc.py in case of conflict."
+				 ]
+				).splitlines()
+		])
+	helpstr = helpstr.replace('[default: ', '\[default: ')  # Escape because rich
+	helpstr = helpstr.replace('Options:', h1('Options:'))
+
+	# `foo`
+	helpstr = re.sub(r'`(.+)`', lambda match: code(match.group(1)), helpstr)
+
+	# SIZE_MB
+	helpstr = re.sub(r'(?<!: )\b\$?[A-Z_]{2,}\b', lambda match: kw(match.group()), helpstr)
+
+	# : INT
+	helpstr = re.sub(r': (\b(STR|INT)\b)', lambda match: f' {ta(match.group())}', helpstr)
+
+	# -h, --help
+	helpstr = re.sub(r'(-[a-z-]+)(,)?', lambda match: f'{arg(match.group(1))}{match.group(2) if match.group(2) else ""}', helpstr)
+
+	# from rich import inspect
 	main.callback.__doc__ = helpstr
-	inspect(main.callback, docs=True, help=True, title=f'{THIS_FILE_STEM}.py main(...)')
+	from rich.console import Console
+	con = Console(highlight=False, soft_wrap=False)
+	con.print(helpstr)
 
 
 if __name__ == '__main__':

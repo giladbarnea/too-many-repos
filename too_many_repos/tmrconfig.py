@@ -1,5 +1,4 @@
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Literal, TypeVar, NoReturn, get_origin, get_args, Union, Type
 
@@ -9,7 +8,7 @@ from too_many_repos.log import logger
 from too_many_repos.singleton import Singleton
 from too_many_repos.util import exec_file
 
-CacheMode = Optional[Literal['r', 'w', 'r+w']]
+CacheMode = Optional[Literal['r', 'w', 'r+w', 'w+r']]
 _O = TypeVar('_O')
 
 from rich.traceback import install
@@ -134,22 +133,23 @@ def cast_type(val: Optional[str], type_: _O) -> _O:
 	return type(type_)(val)
 
 
-def popopt(opt: str, type_: _O, also_short=False) -> _O:
+def popopt(opt: str, type_: _O, *, check_short=False) -> _O:
 	"""
 	Tries to pop opt from sys.argv, validate its value and cast it by type_.
 
 	:param opt: e.g '--verbose'
 	:param type_: e.g. bool, Literal['r', 'w'], Optional[Literal[...]]
-	:param also_short: look for e.g. '-v'
-	:raises BadOptionUsage if is_valid returns False
+	:param check_short: look for e.g. '-v'
 	:return: The type-casted value.
+
+	:raises BadOptionUsage if is_valid returns False
 	"""
 
 	val = None
 	if not opt.startswith('--'):
 		raise ValueError(f"popopt({opt = }, ...) `opt` must start with '--'")
 
-	shopt = opt[1:3] if also_short else None
+	shopt = opt[1:3] if check_short else None
 	specified_opt = None  # For exceptions
 
 	def found_it(_arg: str) -> bool:
@@ -191,16 +191,15 @@ def popopt(opt: str, type_: _O, also_short=False) -> _O:
 	return cast
 
 
-def moms_setattr(obj, attr, val):
-	self_value = getattr(obj, attr)
-	if self_value:
-		logger.warning((f"[b]{obj}.{attr}[/b] was specified both in config and cmd args."
-						f" config val ({self_value}) will be overridden "
-						f"by the value passed via cmdline: {val}"))
+def annoying_setattr(obj, attr, val):
+	self_value = getattr(obj, attr, UNSET)
+	if self_value is not UNSET:
+		logger.warning((f"[b]{attr}[/b] was specified both in config and cmd args."
+						f" config val ({repr(self_value)}) will be overwritten "
+						f"by the value passed via cmdline: {repr(val)}"))
 	setattr(obj, attr, val)
 
 
-@dataclass
 class CacheConfig:
 	"""
 	Mode dictates what to do with individual settings.
@@ -212,8 +211,21 @@ class CacheConfig:
 	gist_list: Optional[bool] = None
 	gist_filenames: Optional[bool] = None
 	gist_content: Optional[bool] = None
-	_mode: CacheMode = None
-	_path: Path = None
+	_mode: CacheMode
+	_path: Path
+
+	def __init__(self) -> None:
+		self.path = Path.home() / '.cache/too-many-repos'
+		_try_set_opt_from_sys_args(self, 'mode', '--cache-mode',
+								   type_=CacheMode, default=None)
+
+	def __repr__(self):
+		rv = f"CacheConfig(path='{self.path}', mode='{self.mode}', "
+		for key, val in self.__dict__.items():
+			if key.startswith('_'):
+				continue
+			rv += f'{key}={repr(val) if isinstance(val, str) else val}, '
+		return rv[:-2]+')'
 
 	@property
 	def path(self):
@@ -244,45 +256,38 @@ class CacheConfig:
 			if self.gist_content is None:
 				self.gist_content = True
 
-	def __post_init__(self):
-		self.path = Path.home() / '.cache/too-many-repos'
-
 
 class TmrConfig(Singleton):
 	verbose: int
 	cache: CacheConfig
-	# cache_mode: CacheMode
-	# config.cache.path: Path
 	max_workers: Optional[int]
 	max_depth: int
 	gitdir_size_limit_mb: int
 
 	def __init__(self):
 		super().__init__()
-		self.verbose = 0
+		self.verbose: int
 		self.cache: CacheConfig = CacheConfig()
-		# self.cache_mode: CacheMode = None
-		# self.config.cache.path: Path = None
-		self.max_workers: Optional[int] = None
-		self.max_depth: int = None
+		self.max_workers: Optional[int]
+		self.max_depth: int
 		self.gitdir_size_limit_mb: int = 100
 		tmrrc = Path.home() / '.tmrrc.py'
 		exec_file(tmrrc, dict(config=self))
 
 		# ** At this point, self.* attrs may have loaded values from file
 
-		self._try_set_verbose_level_from_sys_args()
+		self._try_set_verbose_level_from_sys_args(default=0)
 
-		self._try_set_cache_mode_from_sys_args()
+		# self._try_set_cache_mode_from_sys_args(default=None)
 
-		self._try_set_max_workers_from_sys_args()
+		self._try_set_max_workers_from_sys_args(default=None)
 
 		self._try_set_max_depth_from_sys_args(default=1)
 
-	def __str__(self):
+	def __repr__(self):
 		rv = f"TmrConfig()"
 		for key, val in self.__dict__.items():
-			rv += f'\n\tself.{key}: {val}'
+			rv += f'\n\tself.{key}: {repr(val) if isinstance(val, str) else val}'
 		return rv
 
 	@staticmethod
@@ -323,35 +328,51 @@ class TmrConfig(Singleton):
 				return level
 		return None
 
-	def _try_set_verbose_level_from_sys_args(self, default=None) -> NoReturn:
+	def _try_set_verbose_level_from_sys_args(self, default=UNSET) -> NoReturn:
 		level = TmrConfig._get_verbose_level_from_sys_argv()
-		if level is None and default is not None:
-			moms_setattr(self, 'verbose', default)
+		if level is None and default is not UNSET:
+			annoying_setattr(self, 'verbose', default)
 		if level is not None:
-			moms_setattr(self, 'verbose', level)
+			annoying_setattr(self, 'verbose', level)
 
-	def _try_set_cache_mode_from_sys_args(self, default=None) -> NoReturn:
-		mode = popopt('--cache-mode', CacheMode)
-		if mode is None and default is not None:
-			moms_setattr(self.cache, 'mode', default)
-		if mode is not None:
-			moms_setattr(self.cache, 'mode', mode)
+	# def _try_set_cache_mode_from_sys_args(self, default=UNSET) -> NoReturn:
+	# 	mode = popopt('--cache-mode', CacheMode)
+	# 	if mode is None and default is not UNSET:
+	# 		annoying_setattr(self.cache, 'mode', default)
+	# 	if mode is not None:
+	# 		annoying_setattr(self.cache, 'mode', mode)
 
-	def _try_set_max_workers_from_sys_args(self, default=None) -> NoReturn:
-		max_workers = popopt('--max-workers', Optional[int])
-		if max_workers is None and default is not None:
-			moms_setattr(self, 'max_workers', default)
+	def _try_set_max_workers_from_sys_args(self, default=UNSET) -> NoReturn:
+		_try_set_opt_from_sys_args(self, 'max_workers', type_=Optional[int], default=default)
+		# max_workers = popopt('--max-workers', Optional[int])
+		# if max_workers is None and default is not UNSET:
+		# 	annoying_setattr(self, 'max_workers', default)
+		#
+		# if max_workers is not None:
+		# 	annoying_setattr(self, 'max_workers', max_workers)
 
-		if max_workers is not None:
-			moms_setattr(self, 'max_workers', max_workers)
-
-	def _try_set_max_depth_from_sys_args(self, default=None) -> NoReturn:
-		max_depth = popopt('--max-depth', Optional[int])
-		if max_depth is None and default is not None:
-			moms_setattr(self, 'max_depth', default)
-
-		if max_depth is not None:
-			moms_setattr(self, 'max_depth', max_depth)
+	def _try_set_max_depth_from_sys_args(self, default=UNSET) -> NoReturn:
+		_try_set_opt_from_sys_args(self, 'max_depth', type_=Optional[int], default=default)
+		# max_depth = popopt('--max-depth', Optional[int])
+		# if max_depth is None and default is not UNSET:
+		# 	annoying_setattr(self, 'max_depth', default)
+		#
+		# if max_depth is not None:
+		# 	annoying_setattr(self, 'max_depth', max_depth)
 
 
-config = TmrConfig()
+def _try_set_opt_from_sys_args(obj, attr, optname=None, *, type_, default=UNSET) -> NoReturn:
+	if not optname:
+		optname = f'--{attr.replace("_", "-")}'
+	val = popopt(optname, type_)
+	if val is None and default is not UNSET:
+		annoying_setattr(obj, attr.replace('-', '_'), default)
+
+	if val is not None:
+		annoying_setattr(obj, attr.replace('-', '_'), val)
+
+
+if any(arg in ('-h', '--help') for arg in sys.argv[1:]):
+	config = None
+else:
+	config = TmrConfig()

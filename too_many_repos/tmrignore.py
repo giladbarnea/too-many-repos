@@ -1,9 +1,10 @@
-from typing import Iterable, TypeVar, Set, Union, Type, ForwardRef, Any
 import re
+import sys
 from pathlib import Path
+from typing import Iterable, Set, Union, ForwardRef
+
 from too_many_repos.log import logger
 from too_many_repos.singleton import Singleton
-from too_many_repos.tmrconfig import config
 
 IgnorableType = Union[str, re.Pattern, Path, ForwardRef("Ignorable")]
 
@@ -24,6 +25,7 @@ class Ignorable:
 	Used internally by `TmrIgnore`.
 	"""
 	_val: Union[re.Pattern, str]
+
 	def __new__(cls, value: IgnorableType) -> ForwardRef("Ignorable"):
 		"""
 		Normalizes the values the are passed to constructor to either str or re.Pattern.
@@ -86,7 +88,7 @@ class TmrIgnore(Set[Ignorable], Singleton):
 
 	def __repr__(self) -> str:
 		items_str = []
-		for ignored in sorted(self, key=lambda x:str(x)):
+		for ignored in sorted(self, key=lambda x: str(x)):
 			s = str(ignored)
 			if isinstance(ignored._val, re.Pattern):
 				items_str.append(s)
@@ -107,8 +109,8 @@ class TmrIgnore(Set[Ignorable], Singleton):
 			# Shouldn't happen
 			breakpoint()
 		super().add(ignorable)
-		if config.verbose >= 2 and not ignorable.exists():
-			logger.warning(f"Does not exist: {ignorable}")
+		# if config.verbose >= 2 and not ignorable.exists():
+		# 	logger.warning(f"Does not exist: {ignorable}")
 
 	def update(self, *s: Iterable[IgnorableType]) -> None:
 		for element in s:
@@ -116,17 +118,17 @@ class TmrIgnore(Set[Ignorable], Singleton):
 
 	def update_from_file(self, ignorefile: Path):
 		def exc_fmt(_e):
-			return f"{_e.__class__.__qualname__} when handling {ignorefile}: {_e}"
+			return f"TmrIgnore.update_from_file({ignorefile}) | {_e.__class__.__qualname__} : {_e}"
+
 		entries = set()
 		try:
 			entries |= set(map(str.strip, ignorefile.open().readlines()))
 		except FileNotFoundError as fnfe:
-			if config.verbose >= 2:
-				logger.warning(exc_fmt(fnfe))
+			pass
 		except Exception as e:
 			logger.warning(exc_fmt(e))
 		else:
-			logger.info(f"[good]Loaded ignore file successfully: {ignorefile}[/]")
+			logger.good(f"Loaded ignore file successfully: {ignorefile}")
 
 		for exclude in entries:
 			if exclude.startswith('#'):
@@ -134,4 +136,7 @@ class TmrIgnore(Set[Ignorable], Singleton):
 			self.add(exclude)
 
 
-tmrignore = TmrIgnore()
+if any(arg in ('-h','--help') for arg in sys.argv[1:]):
+	tmrignore = None
+else:
+	tmrignore = TmrIgnore()

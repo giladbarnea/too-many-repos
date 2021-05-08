@@ -19,7 +19,7 @@ def run(cmd: str, *args, **kwargs) -> str:
     if 'stdout' not in kwargs:
         kwargs.update(stdout=sp.PIPE)
     if kwargs.pop('verbose', None) is not None or config.verbose >= 2:
-        logger.debug(f'[#]Running[/]: [rgb(125,125,125) i on rgb(25,25,25)]{cmd}[/]')
+        logger.debug(f'Running: [rgb(125,125,125) i on rgb(25,25,25)]{cmd}[/]')
     stdout = sp.run(shlex.split(cmd), *args, **kwargs).stdout
     if stdout:
         return stdout.strip().decode()
@@ -31,5 +31,5 @@ def popen(cmd: str, *args, **kwargs) -> sp.Popen:
     if 'stderr' not in kwargs:
         kwargs.update(stderr=sp.PIPE)
     if kwargs.pop('verbose', None) is not None or config.verbose >= 2:
-        logger.debug(f'[#]Process[/]: [rgb(125,125,125) i on rgb(25,25,25)]{cmd}[/]')
+        logger.debug(f'Process: [rgb(125,125,125) i on rgb(25,25,25)]{cmd}[/]')
     return sp.Popen(shlex.split(cmd), *args, **kwargs)

@@ -1,8 +1,11 @@
+import os
 from collections import defaultdict
 from concurrent import futures as fut
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Any, Literal, Dict, NoReturn, ForwardRef
+
+from pdbpp import break_on_exc
 
 from too_many_repos import system
 from too_many_repos.cache import cache
@@ -10,46 +13,72 @@ from too_many_repos.log import logger
 from too_many_repos.tmrconfig import config
 from too_many_repos.tmrignore import tmrignore
 
+Difference = Literal['whitespace', 'content', False]
+
 
 class GistFile:
-	content: str = ''
-	diffs: Dict[Path, bool]
+	content: str
+	stripped_content: str
+	tmp_path: str
+	stripped_tmp_path: str
+	diffs: Dict[Path, Difference]
 	gist: ForwardRef('Gist')
+	name: str
 
-	def __init__(self):
+	def __init__(self, name: str, gist: ForwardRef('Gist')):
+		self.content: str = ''
+		self.stripped_content: str = ''
 		self.diffs = dict()
+		self.name = name
+		self.gist = gist
+		self.tmp_path = f'/tmp/{self.gist.id}__{name}'
+		stem, ext = os.path.splitext(name)
+		self.stripped_tmp_path = f'/tmp/{self.gist.id}__{stem}__stripped{ext}'
 
 	def __repr__(self) -> str:
-		rv = f"GistFile {{ \n\tcontent: "
+		rv = f"GistFile('{self.name}') {{ \n\tcontent: "
 		if self.content:
-			rv += f'"{self.content[:16]}..."'
+			rv += rf'"{self.content[:16]}..."'
 		else:
 			rv += f'--'
 		if self.gist:
-			rv += f"\n\tgist: {self.gist.short()}"
+			rv += f"\n\tGist: {self.gist.short()}"
 		rv += f"\n\tdiffs: {self.diffs} }}"
 		return rv
 
-	def diff(self, path: Path) -> bool:
-		"""Returns whether self.diff[path] with whether the stripped contents of `path` and this self are different."""
-		logger.debug(f'[#]Gist: {self.gist.short()} diffing "{path}"...')
-		# gist_file: GistFile = self.files.get(path.name)
-		tmp_gist_path = f'/tmp/{self.gist.id}_{path.name}'
-		with open(tmp_gist_path, mode='w') as tmp:
+	@break_on_exc
+	def diff(self, against: Path) -> NoReturn:
+		"""Checks whether the stripped contents of `against` and this file's content are different."""
+		# TODO: (bug) difference in 2 spaces vs 4 spaces vs tab count like 'content' diff
+		#  because it's rstrip and not regular strip
+		#  need to re.sub(r'\s\t',' ') and detect num of spaces
+		# TODO (reuse files): write to ~/.cache/<SESSION>/ instead and check if exists before
+		logger.debug(f'Gist | {self.gist.short()} diffing "{against}"...')
+
+		# Save the content of this file to a tmp file
+		with open(self.tmp_path, mode='w') as tmp:
 			tmp.write(self.content)
 
-		# Strip the contents of the local file and save it to a tmp file
-		tmp_file_path = f'/tmp/{path.name}.gist{path.suffix}'
-		path_readlines = path.open().readlines()
-		with open(tmp_file_path, mode='w') as tmp:
-			tmp.write('\n'.join(filter(bool, map(str.rstrip, path_readlines))))
+		with open(self.stripped_tmp_path, mode='w') as tmp:
+			tmp.write(self.stripped_content)
 
-		self_content_splitlines = self.content.splitlines()
-		if path_readlines == set(filter(bool,map(str.rstrip, path_readlines))) or \
-				self_content_splitlines == set(self_content_splitlines):
-			breakpoint()
-		diff = system.run(f'diff -ZbwBu --strip-trailing-cr --suppress-blank-empty "{tmp_gist_path}" "{tmp_file_path}"')
-		return bool(diff)
+		# Strip the contents of the local file and save it to a tmp file
+		stripped_against_path = f'/tmp/{against.stem}__stripped{against.suffix}'
+		against_lines = against.open().readlines()
+		stripped_against_lines = list(filter(bool, map(str.rstrip, against_lines)))
+		with open(stripped_against_path, mode='w') as tmp:
+			tmp.write('\n'.join(stripped_against_lines))
+
+		different_stripped = system.run(f'diff -ZbwBu --strip-trailing-cr --suppress-blank-empty "{self.stripped_tmp_path}" "{stripped_against_path}"')
+		different_as_is = system.run(f'diff -ZbwBu --strip-trailing-cr --suppress-blank-empty "{self.tmp_path}" "{against}"')
+		difference: Difference
+		if different_stripped:
+			difference = 'content'
+		elif different_as_is:
+			difference = 'whitespace'
+		else:
+			difference = False
+		self.diffs[against] = difference
 
 
 @dataclass
@@ -71,26 +100,27 @@ class Gist:
 		self.filecount = int(self.filecount.partition(' ')[0])
 
 	def _get_file_names(self) -> List[str]:
-		"""Calls `gh gist view "{self.id}" --files` to get this gist's list of file names.
+		"""Calls `gh gist view "{self.id}" --files` to get this gist's list of
+		file names (e.g 'alpine.sh').
 		May use cache."""
-		if config.cache.mode in ('r', 'r+w') and \
+		if 'r' in config.cache.mode and \
 				config.cache.gist_filenames and \
 				(filenames := cache.get_gist_filenames(self.id)) is not None:
 			return filenames
 		filenames = system.run(f'gh gist view "{self.id}" --files').splitlines()
-		if config.cache.mode in ('w', 'r+w') and config.cache.gist_filenames:
+		if 'w' in config.cache.mode and config.cache.gist_filenames:
 			cache.set_gist_filenames(self.id, filenames)
 		return filenames
 
 	def _get_file_content(self, file_name) -> str:
 		"""Calls `gh gist view '{self.id}' -f '{file_name}'` to get the file's content.
 		May use cache."""
-		if config.cache.mode in ('r', 'r+w') and \
+		if 'r' in config.cache.mode and \
 				config.cache.gist_content and \
 				(file_content := cache.get_gist_file_content(self.id, file_name)) is not None:
 			return file_content
 		content = system.run(f"gh gist view '{self.id}' -f '{file_name}'")
-		if config.cache.mode in ('w', 'r+w') and config.cache.gist_content:
+		if 'w' in config.cache.mode and config.cache.gist_content:
 			cache.set_gist_file_content(self.id, file_name, content)
 		return content
 
@@ -103,13 +133,12 @@ class Gist:
 		Called by build_filename2gistfiles() in a threaded context."""
 		filenames = self._get_file_names()
 		for name in filenames:
-			file = GistFile()
 			if tmrignore.is_ignored(name) and skip_ignored:
-				logger.warning(f"Gist: file [b]'{name}'[/b] of {self.short()}: skipping; excluded")
+				logger.warning(f"Gist | file [b]'{name}'[/b] of {self.short()}: skipping; excluded")
 				continue
-			file.gist = self
+			file = GistFile(name, self)
 			self.files[name] = file
-		logger.debug(f"[#]Gist: [b]{self.short()}[/b] built {len(self.files)} files[/]")
+		logger.debug(f"Gist | [b]{self.short()}[/b] built {len(self.files)} files[/]")
 
 	def popuplate_files_content(self) -> NoReturn:
 		"""
@@ -121,8 +150,9 @@ class Gist:
 		"""
 		for name, file in self.files.items():
 			content = self._get_file_content(name)
-			file.content = '\n'.join(filter(bool, map(str.rstrip, content.splitlines())))
-		logger.debug(f"[#]Gist: [b]{self.short()}[/b] populated files content[/]")
+			file.content = content
+			file.stripped_content = '\n'.join(filter(bool, map(str.rstrip, content.splitlines())))
+		logger.debug(f"Gist | [b]{self.short()}[/b] populated files content[/]")
 
 
 # @property
@@ -142,6 +172,7 @@ class Gist:
 # 		finally:
 # 			self._content = stripped_content
 # 	return self._content
+
 def get_gist_list() -> List[str]:
 	"""Calls `gh gist list -L 100` to get the list of gists.
 	May use cache."""
@@ -159,13 +190,13 @@ def build_filename2gistfiles() -> Dict[str, List[GistFile]]:
 	"""
 	Maps the names of the GistFiles to their actual GistFiles.
 	"""
-	logger.info('\nGetting list of gists...')
+	logger.info('\nGist | Getting list of gists...')
 	filename2gistfiles: Dict[str, List[GistFile]] = defaultdict(list)
 	gists: List[Gist] = []
 	gist_list: List[str] = get_gist_list()
 
 	# * files = gh gist view ... --files
-	logger.info('\nGetting list of files for each gist...')
+	logger.info('\nGist | Getting list of files for each gist...')
 	max_workers = min((gist_list_len := len(gist_list)), config.max_workers or gist_list_len)
 	with fut.ThreadPoolExecutor(max_workers) as executor:
 		for gist_str in gist_list:
@@ -182,7 +213,7 @@ def build_filename2gistfiles() -> Dict[str, List[GistFile]]:
 			gists.append(gist)
 
 	# * file.content = gh gist view ... -f <NAME>
-	logger.info('\nPopulating contents of all gist files...')
+	logger.info('\nGist | Populating contents of all gist files...')
 	with fut.ThreadPoolExecutor(max_workers) as executor:
 		for gist in gists:
 			for name, gistfile in gist.files.items():

@@ -23,6 +23,24 @@ def visit_dir(path):
 		os.chdir(prev_cwd)
 
 
+def is_repo(path: Path) -> bool:
+	"""Checks for existence of .git dir, and does light arbitrary checks inside it"""
+	gitdir = path / '.git'
+	try:
+		if not gitdir.is_dir():
+			return False
+	except PermissionError:
+		logger.warning(f"[b]{gitdir}[/b]: PermissionError[/]")
+		return False
+	for subdir in ('info', 'refs'):
+		if not (gitdir / subdir).is_dir():
+			return False
+	for file in ('config', 'HEAD'):
+		if not (gitdir / file).is_file():
+			return False
+	return True
+
+
 class Repo:
 	def __init__(self, path: Path):
 		self.path = path
@@ -44,33 +62,18 @@ class Repo:
 			status = system.run('git status')
 		self.status = status
 
-	def is_gitdir_too_big(self) -> bool:
+	def is_gitdir_too_big(self) -> bool:	# Slow (10ms~100ms)
 		gitdir_size = 0
+		gitdir_size_limit_byte = config.gitdir_size_limit_mb * 1_000_000
 		for entry in self.gitdir.glob('**/*'):
-			gitdir_size += entry.stat().st_size / 1000000
-			if gitdir_size >= config.gitdir_size_limit_mb:
+			gitdir_size += entry.stat().st_size
+			if gitdir_size >= gitdir_size_limit_byte:
 				return True
 		return False
 
-	def is_repo(self) -> bool:
-		"""Checks for existence of .git dir, and does light arbitrary checks inside it"""
-		try:
-			if not self.gitdir.is_dir():
-				return False
-		except PermissionError:
-			logger.warning(f"[b]{self.gitdir}[/b]: PermissionError[/]")
-			return False
-		for subdir in ('info', 'refs'):
-			if not (self.gitdir / subdir).is_dir():
-				return False
-		for file in ('config', 'HEAD'):
-			if not (self.gitdir / file).is_file():
-				return False
-		return True
-
 	def popuplate_remotes(self) -> NoReturn:
 		"""origin, upstream, tracking"""
-		config.verbose >= 2 and logger.debug(f'[#]{self.path}: getting remotes...[/]')
+		config.verbose >= 2 and logger.debug(f'{self.path}: getting remotes...')
 		origin = '/'.join(run('git remote get-url origin', stderr=sp.DEVNULL).split('/')[-2:])
 		upstream = '/'.join(run('git remote get-url upstream', stderr=sp.DEVNULL).split('/')[-2:])
 		tracking = run('git rev-parse --abbrev-ref --symbolic-full-name @{u}', stderr=sp.DEVNULL)
