@@ -103,7 +103,7 @@ class TmrIgnore(Set[Ignorable], Singleton):
 				items_str.append(s)
 			else:
 				items_str.append(repr(s))
-		items = ", \n\t".join(items_str)
+		items = ", \n    ".join(items_str)
 		return f'{self.__class__.__qualname__}({{{items}\n}})'
 
 	def is_ignored(self, element: IgnorableType):

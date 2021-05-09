@@ -1,4 +1,5 @@
 import os
+import re
 from collections import defaultdict
 from concurrent import futures as fut
 from dataclasses import dataclass, field
@@ -46,7 +47,6 @@ class GistFile:
 		rv += f"\n\tdiffs: {self.diffs} }}"
 		return rv
 
-	@break_on_exc
 	def diff(self, against: Path) -> NoReturn:
 		"""Checks whether the stripped contents of `against` and this file's content are different."""
 		# TODO: (bug) difference in 2 spaces vs 4 spaces vs tab count like 'content' diff
@@ -64,7 +64,7 @@ class GistFile:
 
 		# Strip the contents of the local file and save it to a tmp file
 		stripped_against_path = f'/tmp/{against.stem}__stripped{against.suffix}'
-		against_lines = against.open().readlines()
+		against_lines = against.open().read().splitlines()  # readlines() returns a list each ending with linebreak
 		stripped_against_lines = list(filter(bool, map(str.rstrip, against_lines)))
 		with open(stripped_against_path, mode='w') as tmp:
 			tmp.write('\n'.join(stripped_against_lines))
@@ -79,9 +79,12 @@ class GistFile:
 		else:
 
 			difference = False
-		if difference and set(self.stripped_content.splitlines()) == set(stripped_against_lines):
-			# This mean file content is the same just order of lines is different
-			breakpoint()
+		if difference and set(self.stripped_content.splitlines()) == set(filter(bool, self.content.splitlines())):
+			# This means file is flat, like .tmrignore. Check if local and gist still different when content is sorted
+			against_set = set(filter(bool, against_lines))
+			self_set = set(filter(bool, self.content.splitlines()))
+			if against_set == self_set:
+				breakpoint()
 		self.diffs[against] = difference
 
 
@@ -180,12 +183,13 @@ class Gist:
 def get_gist_list() -> List[str]:
 	"""Calls `gh gist list -L 100` to get the list of gists.
 	May use cache."""
-	if config.cache.mode in ('r', 'r+w') and \
+
+	if 'r' in config.cache.mode and \
 			config.cache.gist_list and \
 			(gist_list := cache.gist_list) is not None:
 		return gist_list
 	gist_list = system.run('gh gist list -L 100').splitlines()  # not safe
-	if config.cache.mode in ('w', 'r+w') and config.cache.gist_list:
+	if 'w' in config.cache.mode and config.cache.gist_list:
 		cache.gist_list = gist_list
 	return gist_list
 
@@ -213,7 +217,9 @@ def build_filename2gistfiles() -> Dict[str, List[GistFile]]:
 				logger.warning(f"Gist | [b]{gist.short()}[/b]: skipping; excluded")
 				continue
 
-			executor.submit(gist.build_self_files, skip_ignored=True)
+			future = executor.submit(gist.build_self_files, skip_ignored=True)
+			# if exc := future.exception():
+			# 	raise exc
 			gists.append(gist)
 
 	# * file.content = gh gist view ... -f <NAME>
@@ -221,7 +227,9 @@ def build_filename2gistfiles() -> Dict[str, List[GistFile]]:
 	with fut.ThreadPoolExecutor(max_workers) as executor:
 		for gist in gists:
 			for name, gistfile in gist.files.items():
-				executor.submit(gist.popuplate_files_content)
+				future = executor.submit(gist.popuplate_files_content)
+				# if exc := future.exception():
+				# 	raise exc
 				filename2gistfiles[name].append(gistfile)
 			config.verbose >= 2 and logger.debug(gist)
 

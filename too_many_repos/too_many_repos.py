@@ -136,47 +136,45 @@ def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[G
 	Called in a multiprocess context.
 	"""
 	# TODO (bug): when max_depth is > 1, even if foo/ is ignored, each if its subpaths are iterated.
-	if max_depth <= 0:
-		config.verbose >= 3 and logger.debug(f'Main | Reached {max_depth = } in {path}')
-		return defaultdict(list)
+
 
 	# Even though is_ignored() is slow~, better to check before recursing down
 	if tmrignore.is_ignored(path.absolute()):
 		config.verbose >= 2 and logger.warning(f"Main | [b]{path}[/b]: skipping; excluded")
 		return defaultdict(list)
 	need_user: Dict[Path, List[GistFile]] = defaultdict(list)
+	if path.is_file():
+		# ignored subdirs are checked recursively
+		if tmrignore.is_ignored(path.absolute()):
+			config.verbose >= 3 and logger.warning(f"Main | [b]{path}[/b]: skipping; excluded")
+			return defaultdict(list)
+		file = path
+		config.verbose >= 3 and logger.debug(f'Main | checking if there a matching gist to {file}...')
+		gistfiles = filename2gistfiles.get(file.name)
+		if not gistfiles:
+			return defaultdict(list)
+		if len(gistfiles) > 1:
+			need_user[file].extend(gistfiles)
+			return defaultdict(list)
+		gistfile = gistfiles[0]
+		gistfile.diff(file)
+	if max_depth <= 0:
+		config.verbose >= 3 and logger.debug(f'Main | Reached {max_depth = } in {path}')
+		return defaultdict(list)
 	config.verbose >= 3 and logger.debug(f'Main | Looking for gists to diff inside {path}...')
 
-	for subpath in path.glob('*'):
-		if subpath.is_dir():
+	if path.is_dir():
+		for subpath in path.glob('*'):
 			update = diff_recursively_with_gists(subpath, filename2gistfiles, max_depth=max_depth - 1)
 			if update:
 				need_user.update(update)
 			continue
-		if subpath.is_file():
-			# subdirs are checked recursively
-			if tmrignore.is_ignored(subpath.absolute()):
-				config.verbose >= 3 and logger.warning(f"Main | [b]{subpath}[/b]: skipping; excluded")
-				continue
-			file = subpath
-			config.verbose >= 3 and logger.debug(f'Main | checking if there a matching gist to {file}...')
-			gistfiles = filename2gistfiles.get(file.name)
-			if not gistfiles:
-				continue
-			if len(gistfiles) > 1:
-				need_user[file].extend(gistfiles)
-				continue
-			gistfile = gistfiles[0]
-			# gistfile.diffs[file] = gistfile.diff(file)
-			gistfile.diff(file)
 	return need_user
 
 
 def populate_repos_recursively(path: Path, repos: List[Repo], *, max_depth) -> NoReturn:
 	config.verbose >= 3 and logger.debug(f'Main | Populating repos inside {path}...')
-	if max_depth <= 0:
-		config.verbose >= 3 and logger.debug(f'Main | Reached {max_depth = } in {path}')
-		return
+
 	if path.is_file():
 		config.verbose >= 3 and logger.debug(f'Main | {path} is a file')
 		return
@@ -189,10 +187,12 @@ def populate_repos_recursively(path: Path, repos: List[Repo], *, max_depth) -> N
 		repo = Repo(path)
 
 		if repo.is_gitdir_too_big():
-			logger.warning(f"Main | [b]{repo.path}[/b]: skipping; .git dir size is above {config.gitdir_size_limit_mb}MB")
+			logger.warning(f"Main | [b]{repo.path}[/b]: skipping; .git dir size is above {config.gitdir_mb_limit}MB")
 		else:
 			repos.append(repo)
-
+	if max_depth <= 0:
+		config.verbose >= 3 and logger.debug(f'Main | Reached {max_depth = } in {path}')
+		return
 	for subpath in path.glob('*'):
 		populate_repos_recursively(subpath, repos, max_depth=max_depth - 1)
 
@@ -201,6 +201,7 @@ def populate_repos_recursively(path: Path, repos: List[Repo], *, max_depth) -> N
 # if not matching_gist:
 # 	continue
 # matching_gist.diff(file)
+from pdbpp import break_on_exc
 
 
 @click.command()
@@ -229,6 +230,7 @@ def populate_repos_recursively(path: Path, repos: List[Repo], *, max_depth) -> N
 @unrequired_opt('--no-fetch', is_flag=True, help="Don't fetch before working on a repo")
 @click.option('-h', '--help', is_flag=True, help='Show this message and exit.')
 @click.pass_context
+@break_on_exc(ValueError)
 def main(
 		ctx,
 		parent_path: Path,
@@ -270,7 +272,7 @@ def main(
 				  f"{quiet = }"))
 	print('\n[b]Excluding:[/]')
 	print(tmrignore)
-	print('\n[b]config:[/]')
+	print('\n[b]Configuration:[/]')
 	print(config)
 	if not Confirm.ask('Continue?', default=False):
 		return
@@ -289,6 +291,7 @@ def main(
 		need_user: Dict[Path, List[GistFile]] = defaultdict(list)
 		with fut.ThreadPoolExecutor(max_workers) as xtr:
 			for subdir in direct_subdirs:
+				# TODO: .result() makes it serial?
 				res = xtr.submit(diff_recursively_with_gists, subdir, filename2gistfiles, max_depth=config.max_depth).result()
 				logger.debug(f'Got {len(res)} paths that need user from {subdir}')
 				need_user.update(res)
@@ -304,14 +307,10 @@ def main(
 						logger.info(f"[b]Diff {path.absolute()}[/b]: and [b]{gistfile.gist.short()}[/b] are [b yellow]different in {difference}[/]")
 						if Confirm.ask('Show diff?'):
 							# breakpoint()
-							if config.difftool in ('meld', ):
+							if config.difftool in ('meld',):
 								os.system(f'nohup "{config.difftool}" "{path}" "{gistfile.tmp_path}" &>/dev/null &')
 							else:
 								os.system(f'"{config.difftool}" "{path}" "{gistfile.tmp_path}"')
-							# if difference == 'content':
-							# 	os.system(f'"{config.difftool}" "{path}" "{gistfile.tmp_path}"')
-							# else:  # 'whitespace'
-							# 	os.system(f'"{config.difftool}" "{path}" "{gistfile.tmp_path}"')
 					else:
 						logger.info(f"[b]Diff {path.absolute()}[/b]: and [b]{gistfile.gist.short()}[/b] are [b green]identical[/]")
 
@@ -419,7 +418,7 @@ def usage(ctx, parent_path: Path):
 		'\n' + h1(title),
 		rest,
 		f'  -v, --verbose LEVEL: INT\t  Can be specified e.g -vvv [default: 0]',
-		f'  --cache-mode MODE: STR\t  "r", "w", or "r+w" [default: None]',
+		f'  --cache-mode MODE: STR\t  "r", "w", or "r+w" to write only if none was read [default: None]',
 		f'  --max-workers LIMIT: INT\t  Limit threads and processes [default: None]',
 		f'  --max-depth DEPTH: INT\t  [default: 1]',
 		f'',

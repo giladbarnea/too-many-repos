@@ -11,6 +11,8 @@ def exec_file(file: Path, _globals):
 		exec(compile(file.open().read(), file, 'exec'), _globals)
 	except FileNotFoundError as e:
 		logger.warning(f"exec_file: Did not find {file}")
+	except Exception as e:
+		logger.warning(f"exec_file({file}) had {e.__class__.__name__}: {e}. Using default values.")
 	else:
 		logger.good(f"Loaded config file successfully: {file}")
 

@@ -8,7 +8,7 @@ from too_many_repos.log import logger
 from too_many_repos.singleton import Singleton
 from too_many_repos.util import exec_file
 
-CacheMode = Optional[Literal['r', 'w', 'r+w', 'w+r']]
+CacheMode = Optional[Literal['r', 'w', 'r+w', 'w+r', 'rw', 'wr']]
 _O = TypeVar('_O')
 
 from rich.traceback import install
@@ -207,6 +207,8 @@ class CacheConfig:
 
 	If mode is specified ('r' or 'w'), individual settings that were
 	unspecified (default) are set to True.
+
+	If mode has both 'r' and 'w', cache is only written if none was read.
 	"""
 	gist_list: Optional[bool] = None
 	gist_filenames: Optional[bool] = None
@@ -217,7 +219,7 @@ class CacheConfig:
 	def __init__(self) -> None:
 		self.path = Path.home() / '.cache/too-many-repos'
 		_try_set_opt_from_sys_args(self, 'mode', '--cache-mode',
-								   type_=CacheMode, default=None)
+								   type_=CacheMode, default='')
 
 	def __repr__(self):
 		rv = f"CacheConfig(path='{self.path}', mode='{self.mode}', "
@@ -225,7 +227,7 @@ class CacheConfig:
 			if key.startswith('_'):
 				continue
 			rv += f'{key}={repr(val) if isinstance(val, str) else val}, '
-		return rv[:-2]+')'
+		return rv[:-2] + ')'
 
 	@property
 	def path(self):
@@ -244,54 +246,67 @@ class CacheConfig:
 	@mode.setter
 	def mode(self, mode: CacheMode):
 		self._mode = mode
-		if self._mode is None:
-			self.gist_list = None
-			self.gist_filenames = None
-			self.gist_content = None
-		else:
+		if self.mode:
 			if self.gist_list is None:
 				self.gist_list = True
 			if self.gist_filenames is None:
 				self.gist_filenames = True
 			if self.gist_content is None:
 				self.gist_content = True
+		else:
+			self.gist_list = None
+			self.gist_filenames = None
+			self.gist_content = None
 
 
 class TmrConfig(Singleton):
 	verbose: int
 	cache: CacheConfig
 	max_workers: Optional[int]
+	"""If None, dictated by number of subdirs etc"""
 	max_depth: int
-	gitdir_size_limit_mb: int
+	gitdir_mb_limit: int
 	difftool: str
 
 	def __init__(self):
 		super().__init__()
+
+		# Attributes that can be set via cmd args or tmrrc.py, should not load
+		# a default value directly, especially not before exec_file().
+		# Default values should be set via _try_set_opt_from_sys_args(default=...).
 		self.verbose: int
 		self.cache: CacheConfig = CacheConfig()
 		self.max_workers: Optional[int]
 		self.max_depth: int
-		self.gitdir_size_limit_mb: int = 100
+		self.gitdir_mb_limit: int = 100
 		tmrrc = Path.home() / '.tmrrc.py'
 		exec_file(tmrrc, dict(config=self))
 
+		self._handle_unknown_attributes(how='warn')
 		# ** At this point, self.* attrs may have loaded values from file
-
 		self._try_set_verbose_level_from_sys_args(default=0)
 
-		# self._try_set_cache_mode_from_sys_args(default=None)
+		_try_set_opt_from_sys_args(self, 'max_workers', type_=Optional[int], default=None)
 
-		self._try_set_max_workers_from_sys_args(default=None)
-
-		self._try_set_max_depth_from_sys_args(default=1)
+		_try_set_opt_from_sys_args(self, 'max_depth', type_=Optional[int], default=1)
 
 		_try_set_opt_from_sys_args(self, 'difftool', type_=Optional[str], default='diff')
 
 	def __repr__(self):
 		rv = f"TmrConfig()"
 		for key, val in self.__dict__.items():
-			rv += f'\n\tself.{key}: {repr(val) if isinstance(val, str) else val}'
+			rv += f'\n    {key}: {repr(val) if isinstance(val, str) else val}'
 		return rv
+
+	def _handle_unknown_attributes(self, *, how: Literal['warn', 'raise']) -> NoReturn:
+		unknowns = set(self.__dict__.keys()) - set(self.__annotations__.keys())
+		if not unknowns:
+			return
+		msg = f"TmrConfig got bad attributes: {', '.join(map(repr, unknowns))}"
+		if how == 'raise':
+			raise AttributeError(msg)
+		logger.warning(msg)
+
 
 	@staticmethod
 	def _get_verbose_level_from_sys_argv() -> Optional[int]:
@@ -338,41 +353,17 @@ class TmrConfig(Singleton):
 		if level is not None:
 			annoying_setattr(self, 'verbose', level)
 
-	# def _try_set_cache_mode_from_sys_args(self, default=UNSET) -> NoReturn:
-	# 	mode = popopt('--cache-mode', CacheMode)
-	# 	if mode is None and default is not UNSET:
-	# 		annoying_setattr(self.cache, 'mode', default)
-	# 	if mode is not None:
-	# 		annoying_setattr(self.cache, 'mode', mode)
-
-	def _try_set_max_workers_from_sys_args(self, default=UNSET) -> NoReturn:
-		_try_set_opt_from_sys_args(self, 'max_workers', type_=Optional[int], default=default)
-		# max_workers = popopt('--max-workers', Optional[int])
-		# if max_workers is None and default is not UNSET:
-		# 	annoying_setattr(self, 'max_workers', default)
-		#
-		# if max_workers is not None:
-		# 	annoying_setattr(self, 'max_workers', max_workers)
-
-	def _try_set_max_depth_from_sys_args(self, default=UNSET) -> NoReturn:
-		_try_set_opt_from_sys_args(self, 'max_depth', type_=Optional[int], default=default)
-		# max_depth = popopt('--max-depth', Optional[int])
-		# if max_depth is None and default is not UNSET:
-		# 	annoying_setattr(self, 'max_depth', default)
-		#
-		# if max_depth is not None:
-		# 	annoying_setattr(self, 'max_depth', max_depth)
-
 
 def _try_set_opt_from_sys_args(obj, attr, optname=None, *, type_, default=UNSET) -> NoReturn:
 	if not optname:
 		optname = f'--{attr.replace("_", "-")}'
 	val = popopt(optname, type_)
-	if val is None and default is not UNSET:
-		annoying_setattr(obj, attr.replace('-', '_'), default)
-
 	if val is not None:
-		annoying_setattr(obj, attr.replace('-', '_'), val)
+		return annoying_setattr(obj, attr.replace('-', '_'), val)
+
+	self_value = getattr(obj, attr, UNSET)
+	if val is None and self_value is UNSET and default is not UNSET:
+		return setattr(obj, attr.replace('-', '_'), default)
 
 
 if any(arg in ('-h', '--help') for arg in sys.argv[1:]):
