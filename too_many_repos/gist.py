@@ -14,7 +14,7 @@ from too_many_repos.log import logger
 from too_many_repos.tmrconfig import config
 from too_many_repos.tmrignore import tmrignore
 
-Difference = Literal['whitespace', 'content', False]
+Difference = Literal['whitespace', 'content', 'order', False]
 
 
 class GistFile:
@@ -77,14 +77,13 @@ class GistFile:
 		elif different_as_is:
 			difference = 'whitespace'
 		else:
-
 			difference = False
 		if difference and set(self.stripped_content.splitlines()) == set(filter(bool, self.content.splitlines())):
 			# This means file is flat, like .tmrignore. Check if local and gist still different when content is sorted
 			against_set = set(filter(bool, against_lines))
 			self_set = set(filter(bool, self.content.splitlines()))
 			if against_set == self_set:
-				breakpoint()
+				difference = 'order'
 		self.diffs[against] = difference
 
 
