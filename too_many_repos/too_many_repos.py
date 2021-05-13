@@ -286,7 +286,7 @@ def main(
 
 		# * populate gist.files
 		direct_subdirs = get_direct_subdirs(parent_path)
-		max_workers = min((direct_subdirs_len := len(direct_subdirs)), config.max_workers or direct_subdirs_len)
+		max_workers = min((direct_subdirs_len := len(direct_subdirs)), config.max_workers or direct_subdirs_len) or 1
 		logger.info(f'\nMain | Diffing gists recursively in {max_workers} threads...')
 		need_user: Dict[Path, List[GistFile]] = defaultdict(list)
 		with fut.ThreadPoolExecutor(max_workers) as xtr:
