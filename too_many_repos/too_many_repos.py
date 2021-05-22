@@ -1,6 +1,7 @@
 #!/bin/python3.8
 import os
 import re
+import shlex
 import sys
 from collections import defaultdict
 from concurrent import futures as fut
@@ -304,15 +305,16 @@ def main(
 			for gistfile in gistfiles:
 				for path, difference in gistfile.diffs.items():
 					if difference:
-						logger.info(f"[b]Diff {path.absolute()}[/b]: and [b]{gistfile.gist.short()}[/b] are [b yellow]different in {difference}[/]")
+						logger.info(f"[b]Diff '{path.absolute()}'[/b] and [b]{gistfile.gist.short()}[/b] are [b yellow]different in {difference}[/]")
 						if Confirm.ask('Show diff?'):
-							# breakpoint()
-							if config.difftool in ('meld',):
-								os.system(f'nohup "{config.difftool}" "{path}" "{gistfile.tmp_path}" &>/dev/null &')
+							# Break down e.g `code --disable-extensions --diff` to `"code" --disable-extensions --diff`
+							difftool, *difftool_args = config.difftool.split()
+							if re.match(r'^(meld|code|pycharm)', config.difftool):
+								os.system(f'nohup "{difftool}" {" ".join(difftool_args)} "{path}" "{gistfile.tmp_path}" 2>1 1>/dev/null &')
 							else:
-								os.system(f'"{config.difftool}" "{path}" "{gistfile.tmp_path}"')
+								os.system(f'"{difftool}" {" ".join(difftool_args)} "{path}" "{gistfile.tmp_path}"')
 					else:
-						logger.info(f"[b]Diff {path.absolute()}[/b]: and [b]{gistfile.gist.short()}[/b] are [b green]identical[/]")
+						logger.info(f"[b]Diff '{path.absolute()}'[/b] and [b]{gistfile.gist.short()}[/b] are [b green]identical[/]")
 
 	# if need_user:
 	# 	breakpoint()
@@ -421,6 +423,7 @@ def usage(ctx, parent_path: Path):
 		f'  --cache-mode MODE: STR\t  "r", "w", or "r+w" to write only if none was read [default: None]',
 		f'  --max-workers LIMIT: INT\t  Limit threads and processes [default: None]',
 		f'  --max-depth DEPTH: INT\t  [default: 1]',
+		f'  --difftool PATH: STR\t\t  [default: "diff"]',
 		f'',
 		h1(".tmrignore and .tmrrc.py files"),
 		*'\n  '.join(
@@ -445,6 +448,7 @@ def usage(ctx, parent_path: Path):
 				 f"`config.verbose`: int = 0",
 				 f"`config.max_workers`: int = None",
 				 f"`config.max_depth`: int = 1",
+				 f"`config.difftool`: str = 'diff'",
 				 f"`config.gitdir_size_limit_mb`: int = 100",
 				 f"`config.cache.mode`: 'r' | 'w' | 'r+w' = None",
 				 f"`config.cache.path`: str = '{Path.home()}/.cache/too-many-repos'",
