@@ -27,9 +27,10 @@ THIS_FILE_STEM = Path(__file__).stem
 
 
 # noinspection PyUnresolvedReferences,PyTypeChecker
+# TODO: UNUSED
 def diff_gist(entry: Path, gist: Gist, live, quiet):
 	logger.debug(f'diffing {entry}...')
-	tmp_stripped_gist_file_path = f'/tmp/{gist.id}'
+	tmp_stripped_gist_file_path = f'/{config.cache.path}/gists/{gist.id}'
 	# gist_content = system.run(f"gh gist view '{gist.id}'", verbose=config.verbose).splitlines()
 	# gist_description = id2props[gist.id].get('description', '')
 
@@ -47,7 +48,7 @@ def diff_gist(entry: Path, gist: Gist, live, quiet):
 		tmp.write(gist.content)
 
 	entry_lines = list(filter(bool, map(str.strip, entry.absolute().open().readlines())))
-	tmp_stripped_file_path = f'/tmp/{entry.name}.gist{entry.suffix}'
+	tmp_stripped_file_path = f'/{config.cache.path}/gists/{entry.name}.gist{entry.suffix}'
 	with open(tmp_stripped_file_path, mode='w') as tmp:
 		tmp.write('\n'.join(entry_lines))
 	# if '.git_status_subdirs_ignore' in str(entry):
@@ -104,6 +105,7 @@ def diff_gist(entry: Path, gist: Gist, live, quiet):
 		logger.good(f"[b]{entry.absolute()}[/b]: file and gist {gist.id[:16]} ('{gist.description[:32]}') file are identical")
 
 
+# TODO: unused
 def reduce_to_single_gist_by_filename(file: Path, matching_gists: List[Gist]) -> Optional[Gist]:
 	if len(matching_gists) == 1:
 		gist = matching_gists[0]
@@ -130,9 +132,9 @@ def get_direct_subdirs(path: Path) -> List[Path]:
 	return direct_subdirs
 
 
-def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[GistFile]], *, max_depth) -> Dict[Path, List[GistFile]]:
+def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[GistFile]], *, max_depth: int) -> Dict[Path, List[GistFile]]:
 	"""
-	Goes over files inside path and diffs them against any matching gist.
+	Goes over files inside `path` and diffs them against any matching gist in `filename2gistfiles`.
 
 	Called in a multiprocess context.
 	"""
@@ -164,7 +166,8 @@ def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[G
 		return defaultdict(list)
 	config.verbose >= 3 and logger.debug(f'Main | Looking for gists to diff inside {path}...')
 
-	if path.is_dir():
+	if path.is_dir() and not path.is_symlink():
+		# TODO: don't recurse into where gist__stripped are written
 		for subpath in path.glob('*'):
 			update = diff_recursively_with_gists(subpath, filename2gistfiles, max_depth=max_depth - 1)
 			if update:
@@ -305,14 +308,15 @@ def main(
 			for gistfile in gistfiles:
 				for path, difference in gistfile.diffs.items():
 					if difference:
-						logger.info(f"[b]Diff '{path.absolute()}'[/b] and [b]{gistfile.gist.short()}[/b] are [b yellow]different in {difference}[/]")
+						logger.info(f"[b]Diff '{path.absolute()}'[/b] and [b]{gistfile.gist.short()}[/b] are different in [b yellow]{difference}[/]")
 						if Confirm.ask('Show diff?'):
 							# Break down e.g `code --disable-extensions --diff` to `"code" --disable-extensions --diff`
 							difftool, *difftool_args = config.difftool.split()
+							diff_command = f'"{difftool}" {" ".join(difftool_args)} "{path}" "{gistfile.tmp_path}"'
 							if re.match(r'^(meld|code|pycharm)', config.difftool):
-								os.system(f'nohup "{difftool}" {" ".join(difftool_args)} "{path}" "{gistfile.tmp_path}" 2>1 1>/dev/null &')
+								os.system(f'nohup {diff_command} 2>1 1>/dev/null &')
 							else:
-								os.system(f'"{difftool}" {" ".join(difftool_args)} "{path}" "{gistfile.tmp_path}"')
+								os.system(diff_command)
 					else:
 						logger.info(f"[b]Diff '{path.absolute()}'[/b] and [b]{gistfile.gist.short()}[/b] are [b green]identical[/]")
 
@@ -452,7 +456,7 @@ def usage(ctx, parent_path: Path):
 				 f"`config.gitdir_size_limit_mb`: int = 100",
 				 f"`config.cache.mode`: 'r' | 'w' | 'r+w' = None",
 				 f"`config.cache.path`: str = '{Path.home()}/.cache/too-many-repos'",
-				 f"`config.cache.gist_list`: bool = None",
+				 f"`config.cache.gists_list`: bool = None",
 				 f"`config.cache.gist_filenames`: bool = None",
 				 f"`config.cache.gist_content`: bool = None\n",
 				 "Note that cmdline opts have priority over settings in .tmrrc.py in case of conflict."

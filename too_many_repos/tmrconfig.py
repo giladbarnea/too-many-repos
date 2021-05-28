@@ -210,7 +210,7 @@ class CacheConfig:
 
 	If mode has both 'r' and 'w', cache is only written if none was read.
 	"""
-	gist_list: Optional[bool] = None
+	gists_list: Optional[bool] = None
 	gist_filenames: Optional[bool] = None
 	gist_content: Optional[bool] = None
 	_mode: CacheMode
@@ -236,8 +236,13 @@ class CacheConfig:
 	@path.setter
 	def path(self, path: Union[str, Path]):
 		self._path = Path(path)
-		if not self._path.is_dir():
+		if not self._path.exists():
 			self._path.mkdir(parents=True)
+		if not self._path.is_dir():
+			raise NotADirectoryError(f"cache path: {path}")
+		(self._path / 'bin').mkdir(exist_ok=True)
+		(self._path / 'gists').mkdir(exist_ok=True)
+
 
 	@property
 	def mode(self):
@@ -247,14 +252,14 @@ class CacheConfig:
 	def mode(self, mode: CacheMode):
 		self._mode = mode
 		if self.mode:
-			if self.gist_list is None:
-				self.gist_list = True
+			if self.gists_list is None:
+				self.gists_list = True
 			if self.gist_filenames is None:
 				self.gist_filenames = True
 			if self.gist_content is None:
 				self.gist_content = True
 		else:
-			self.gist_list = None
+			self.gists_list = None
 			self.gist_filenames = None
 			self.gist_content = None
 
