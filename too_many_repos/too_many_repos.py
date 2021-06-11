@@ -343,6 +343,7 @@ def main(
 
 	for repo in repos:
 		has_local_modified_files = not repo.status.endswith('nothing to commit, working tree clean')
+		remotes = repo.remotes
 		if not has_local_modified_files and 'behind' not in repo.status and 'have diverged' not in repo.status:
 			# * Non-actionable; print current state and continue to next repo (no prompts)
 			# nothing modified,
@@ -354,8 +355,6 @@ def main(
 				# nothing modified, everything up-to-date.
 				msg += "everything up-to-date."
 
-			repo.popuplate_remotes()
-			remotes = repo.remotes
 
 			if remotes.origin:
 				msg += f' [b]origin[/b]: [i]{remotes.origin}[/i].'
@@ -379,9 +378,9 @@ def main(
 				logger.info(f'[b]{repo.path}[/b]: has local modifications, and is behind')
 				continue
 			if 'ahead' in repo.status:
-				if Confirm.ask(f'[prompt][b]{repo.path}[/b]: push origin {repo.remotes.current_branch}?[/]'):
+				if Confirm.ask(f'[prompt][b]{repo.path}[/b]: push origin {remotes.current_branch}?[/]'):
 					logger.info('pushing...')
-					os.system(f'git push origin "{repo.remotes.current_branch}"')
+					os.system(f'git push origin "{remotes.current_branch}"')
 					print()
 				continue
 

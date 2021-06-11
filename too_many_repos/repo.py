@@ -46,7 +46,7 @@ class Repo:
 		self.path = path
 		self.gitdir = self.path / '.git'
 		self.status = None
-		self.remotes = None
+		self.remotes = self.get_remotes()
 
 	def __repr__(self) -> str:
 		return f"Repo({self.path})"
@@ -71,11 +71,11 @@ class Repo:
 				return True
 		return False
 
-	def popuplate_remotes(self) -> NoReturn:
+	def get_remotes(self) -> Remotes:
 		"""origin, upstream, tracking"""
 		config.verbose >= 2 and logger.debug(f'{self.path}: getting remotes...')
 		origin = '/'.join(run('git remote get-url origin', stderr=sp.DEVNULL).split('/')[-2:])
 		upstream = '/'.join(run('git remote get-url upstream', stderr=sp.DEVNULL).split('/')[-2:])
 		tracking = run('git rev-parse --abbrev-ref --symbolic-full-name @{u}', stderr=sp.DEVNULL)
 		current_branch = run('git rev-parse --abbrev-ref HEAD', stderr=sp.DEVNULL)
-		self.remotes = Remotes(origin, upstream, tracking, current_branch)
+		return Remotes(origin, upstream, tracking, current_branch)
