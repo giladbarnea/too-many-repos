@@ -1,10 +1,11 @@
 import re
 import sys
 from pathlib import Path
-from typing import Iterable, Set, Union, ForwardRef
+from typing import Iterable, Set, Union, ForwardRef, List
 
 from too_many_repos.log import logger
 from too_many_repos.singleton import Singleton
+from rich.table import Table
 
 IgnorableType = Union[str, re.Pattern, Path, ForwardRef("Ignorable")]
 
@@ -94,17 +95,36 @@ class TmrIgnore(Set[Ignorable], Singleton):
 		# 	self.add(element)
 		super().__init__()
 		self.update_from_file(Path.home() / '.tmrignore')
+		self.__cache__ = dict(items_stringed = [])
 
-	def __repr__(self) -> str:
-		items_str = []
+	def _items_stringed(self, *, refresh=False) -> List[str]:
+		if not refresh:
+			if self.__cache__.get('items_stringed'):
+				return self.__cache__.get('items_stringed')
+
+		items_stringed = []
 		for ignored in sorted(self, key=lambda x: str(x)):
 			s = str(ignored)
 			if isinstance(ignored._val, re.Pattern):
-				items_str.append(s)
+				items_stringed.append(s)
 			else:
-				items_str.append(repr(s))
-		items = ", \n    ".join(items_str)
+				items_stringed.append(repr(s))
+
+		self.__cache__['items_stringed'] = items_stringed
+		return items_stringed
+
+	def __repr__(self) -> str:
+		items = ", \n    ".join(self._items_stringed())
 		return f'{self.__class__.__qualname__}({{{items}\n}})'
+
+	def table(self) -> Table:
+		table = Table(show_header=False, highlight=True, title='Excluding:')
+		items_stringed = self._items_stringed()
+		for i in range(len(items_stringed) // 4 + 1):
+			i *= 4
+			row = items_stringed[i:i + 4]
+			table.add_row(*row)
+		return table
 
 	def is_ignored(self, element: IgnorableType):
 		for ignorable in self:

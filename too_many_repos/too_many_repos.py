@@ -272,7 +272,7 @@ def main(
 				  f"{should_check_repos = },\n"
 				  f"{quiet = }"))
 	print('\n[b]Excluding:[/]')
-	print(tmrignore)
+	print(tmrignore.table())
 	print('\n[b]Configuration:[/]')
 	print(config)
 	if not Confirm.ask('Continue?', default=False):
