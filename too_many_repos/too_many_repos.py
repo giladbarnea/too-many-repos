@@ -326,6 +326,9 @@ def main(
 	repos: List[Repo] = []
 	# * populate repos list
 	populate_repos_recursively(parent_path, repos, max_depth=config.max_depth)
+	if not repos:
+		logger.warning('No repos found!')
+		return
 
 	# * fetch
 	max_workers = min((repos_len := len(repos)), config.max_workers or repos_len)
