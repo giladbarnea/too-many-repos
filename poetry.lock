@@ -121,9 +121,20 @@ python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
 name = "colorama"
 version = "0.4.4"
 description = "Cross-platform colored terminal text."
-category = "dev"
+category = "main"
 optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
+
+[[package]]
+name = "commonmark"
+version = "0.9.1"
+description = "Python parser for the CommonMark Markdown spec"
+category = "main"
+optional = false
+python-versions = "*"
+
+[package.extras]
+test = ["flake8 (==3.7.8)", "hypothesis (==3.55.3)"]
 
 [[package]]
 name = "crayons"
@@ -424,7 +435,7 @@ testing = ["docopt", "pytest (<6.0.0)"]
 
 [[package]]
 name = "pdbpp"
-version = "0.10.3.dev215+gb722246"
+version = "0.10.3.dev216+g6ac7b04"
 description = "pdb++, a drop-in replacement for pdb"
 category = "dev"
 optional = false
@@ -432,7 +443,7 @@ python-versions = "*"
 develop = false
 
 [package.dependencies]
-fancycompleter = "rev master"
+fancycompleter = {git = "https://github.com/pdbpp/fancycompleter", rev = "master"}
 pygments = "*"
 six = "*"
 wmctrl = "*"
@@ -445,7 +456,7 @@ testing = ["funcsigs", "pytest"]
 type = "git"
 url = "https://github.com/giladbarnea/pdbpp.git"
 reference = "master"
-resolved_reference = "b722246d3a4115da5d028fbfe320190788f02b9d"
+resolved_reference = "6ac7b04fa3021ff233e25b21c8d467fb2eb3934b"
 
 [[package]]
 name = "pexpect"
@@ -516,7 +527,7 @@ python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*"
 name = "pygments"
 version = "2.9.0"
 description = "Pygments is a syntax highlighting package written in Python."
-category = "dev"
+category = "main"
 optional = false
 python-versions = ">=3.5"
 
@@ -590,6 +601,22 @@ urllib3 = ">=1.21.1,<1.27"
 [package.extras]
 socks = ["PySocks (>=1.5.6,!=1.5.7)", "win-inet-pton"]
 use_chardet_on_py3 = ["chardet (>=3.0.2,<5)"]
+
+[[package]]
+name = "rich"
+version = "10.7.0"
+description = "Render rich text, tables, progress bars, syntax highlighting, markdown and more to the terminal"
+category = "main"
+optional = false
+python-versions = ">=3.6,<4.0"
+
+[package.dependencies]
+colorama = ">=0.4.0,<0.5.0"
+commonmark = ">=0.9.0,<0.10.0"
+pygments = ">=2.6.0,<3.0.0"
+
+[package.extras]
+jupyter = ["ipywidgets (>=7.5.1,<8.0.0)"]
 
 [[package]]
 name = "shortuuid"
@@ -711,7 +738,7 @@ python-versions = "*"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.8"
-content-hash = "a2cb852d26f23073cb29e003dcfab4ecedded4e5747a5ed5e3730617b5c962b7"
+content-hash = "f749cae1e70704b1f91bc48664b61b4e2f84cfe751db581b81325272c9bcaa57"
 
 [metadata.files]
 appnope = [
@@ -760,6 +787,10 @@ click = [
 colorama = [
     {file = "colorama-0.4.4-py2.py3-none-any.whl", hash = "sha256:9f47eda37229f68eee03b24b9748937c7dc3868f906e8ba69fbcbdd3bc5dc3e2"},
     {file = "colorama-0.4.4.tar.gz", hash = "sha256:5941b2b48a20143d2267e95b1c2a7603ce057ee39fd88e7329b0c292aa16869b"},
+]
+commonmark = [
+    {file = "commonmark-0.9.1-py2.py3-none-any.whl", hash = "sha256:da2f38c92590f83de410ba1a3cbceafbc74fee9def35f9251ba9a971d6d66fd9"},
+    {file = "commonmark-0.9.1.tar.gz", hash = "sha256:452f9dc859be7f06631ddcb328b6919c67984aca654e5fefb3914d54691aed60"},
 ]
 crayons = [
     {file = "crayons-0.3.1-py2.py3-none-any.whl", hash = "sha256:4066ec91fecd6b86755d3f083943815e5958688aecdfae54b24443f190ba6950"},
@@ -947,6 +978,7 @@ msgpack = [
 ]
 outdated = [
     {file = "outdated-0.2.1-py3-none-any.whl", hash = "sha256:177e381857c10c410dc643b48ace8753ab977d5ae39642297a7f76eb4a3c1c8e"},
+    {file = "outdated-0.2.1.tar.gz", hash = "sha256:d92921a3d77bc56a6d39c0af321aad44b223906ebb6e8139996d26116baec573"},
 ]
 packaging = [
     {file = "packaging-21.0-py3-none-any.whl", hash = "sha256:c86254f9220d55e31cc94d69bade760f0847da8000def4dfe1c6b872fd14ff14"},
@@ -1006,6 +1038,10 @@ pytest = [
 requests = [
     {file = "requests-2.26.0-py2.py3-none-any.whl", hash = "sha256:6c1246513ecd5ecd4528a0906f910e8f0f9c6b8ec72030dc9fd154dc1a6efd24"},
     {file = "requests-2.26.0.tar.gz", hash = "sha256:b8aa58f8cf793ffd8782d3d8cb19e66ef36f7aba4353eec859e74678b01b07a7"},
+]
+rich = [
+    {file = "rich-10.7.0-py3-none-any.whl", hash = "sha256:517b4e0efd064dd1fe821ca93dd3095d73380ceac1f0a07173d507d9b18f1396"},
+    {file = "rich-10.7.0.tar.gz", hash = "sha256:13ac80676e12cf528dc4228dc682c8402f82577c2aa67191e294350fa2c3c4e9"},
 ]
 shortuuid = [
     {file = "shortuuid-1.0.1-py3-none-any.whl", hash = "sha256:492c7402ff91beb1342a5898bd61ea953985bf24a41cd9f247409aa2e03c8f77"},
