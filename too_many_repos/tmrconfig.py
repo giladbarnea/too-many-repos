@@ -267,6 +267,7 @@ class TmrConfig(Singleton):
 	max_depth: int
 	gitdir_mb_limit: int
 	difftool: str
+	shell: str
 
 	def __init__(self):
 		super().__init__()
@@ -291,6 +292,8 @@ class TmrConfig(Singleton):
 		_try_set_opt_from_sys_args(self, 'max_depth', type_=Optional[int], default=1)
 
 		_try_set_opt_from_sys_args(self, 'difftool', type_=Optional[str], default='diff')
+		
+		_try_set_opt_from_sys_args(self, 'shell', type_=Optional[str], default='bash')
 
 	def __repr__(self):
 		rv = f"TmrConfig()"

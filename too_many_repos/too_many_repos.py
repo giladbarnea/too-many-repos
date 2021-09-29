@@ -386,6 +386,10 @@ def main(
 					os.system(f'git push origin "{remotes.current_branch}"')
 					print()
 				continue
+			# has local modifications, not ahead and not behind. can be pushed
+			if Confirm.ask(f'[prompt][b]{repo.path}[/b]: has local modifications. Launch a temporary [b]{config.shell}[/b] console?[/]'):
+				os.system(f'{config.shell} -l')
+			continue
 
 		# nothing modified, can be pulled
 		if 'ahead' not in repo.status and ('behind' in repo.status or 'have diverged' in repo.status):
