@@ -246,7 +246,7 @@ class CacheConfig:
 	@mode.setter
 	def mode(self, mode: CacheMode):
 		self._mode = mode
-		if self.mode:
+		if self._mode:
 			if self.gist_list is None:
 				self.gist_list = True
 			if self.gist_filenames is None:
@@ -282,9 +282,9 @@ class TmrConfig(Singleton):
 		self.gitdir_mb_limit: int = 100
 		tmrrc = Path.home() / '.tmrrc.py'
 		exec_file(tmrrc, dict(config=self))
-
-		self._handle_unknown_attributes(how='warn')
 		# ** At this point, self.* attrs may have loaded values from file
+		self._handle_unknown_attributes(how='warn')
+
 		self._try_set_verbose_level_from_sys_args(default=0)
 
 		_try_set_opt_from_sys_args(self, 'max_workers', type_=Optional[int], default=None)
