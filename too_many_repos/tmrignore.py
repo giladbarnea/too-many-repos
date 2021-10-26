@@ -37,10 +37,13 @@ class Ignorable:
 		self = super().__new__(cls)
 		if isinstance(value, Path):
 			self._init_(str(value))
-		if is_regexlike(value):
-			self._init_(re.compile(value))
-		else:
+		elif isinstance(value, re.Pattern) or not is_regexlike(value):
 			self._init_(value)
+		else:
+			self._init_(re.compile(value))
+		# if is_regexlike(value):
+		# else:
+		# 	self._init_(value)
 		return self
 
 	def __eq__(self, o: object) -> bool:
@@ -58,6 +61,10 @@ class Ignorable:
 		return f'{self.__class__.__qualname__}({self._val})'
 
 	def _init_(self, value: Union[re.Pattern, str]) -> None:
+		if isinstance(value, str):
+			# todo: this is awkward, it's because __new__ is ok with accepting a re.Pattern.
+			#  does it ever get called with re.Pattern anyway?
+			value.removesuffix('/')
 		self._val = value
 
 	def exists(self) -> bool:
@@ -72,12 +79,13 @@ class Ignorable:
 			return self._val.search(str(other)) is not None
 		_valpath = Path(self._val)
 		if _valpath.is_absolute():
-			# `self._val` is an absolute path: '/home/gilad';
+			# `self._val` is an absolute path: '/home/gilad', so
 			# `other` has to be >= `self._val`, e.g '/home/gilad[/Code]'
 			return str(other).startswith(self._val)
 		if len(_valpath.parts) > 1:
-			# `self._val` is a few parts, but not an absolute path: 'gilad/dev';
+			# `self._val` is a few parts, but not an absolute path: 'gilad/dev', so
 			# `other` has to contain it (e.g. '/home/gilad/dev[/...]')
+			
 			return self._val in str(other)
 
 		# `self._val` is just a name: 'dev';
