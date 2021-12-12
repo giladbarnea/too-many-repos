@@ -266,7 +266,7 @@ class TmrConfig(Singleton):
 	max_workers: Optional[int]
 	"""If None, dictated by number of subdirs etc"""
 	max_depth: int
-	gitdir_mb_limit: int
+	gitdir_size_limit_mb: int
 	difftool: str
 	shell: str
 
@@ -280,7 +280,7 @@ class TmrConfig(Singleton):
 		self.cache: CacheConfig = CacheConfig()
 		self.max_workers: Optional[int]
 		self.max_depth: int
-		self.gitdir_mb_limit: int
+		self.gitdir_size_limit_mb: int
 		tmrrc = Path.home() / '.tmrrc.py'
 		exec_file(tmrrc, dict(config=self))
 		# ** At this point, self.* attrs may have loaded values from file
@@ -288,6 +288,8 @@ class TmrConfig(Singleton):
 
 		self._try_set_verbose_level_from_sys_args(default=0)
 
+		_try_set_opt_from_sys_args(self, 'gitdir_size_limit_mb', type_=Optional[int], default=100)
+		
 		_try_set_opt_from_sys_args(self, 'max_workers', type_=Optional[int], default=None)
 
 		_try_set_opt_from_sys_args(self, 'max_depth', type_=Optional[int], default=1)
@@ -369,7 +371,7 @@ def _try_set_opt_from_sys_args(obj, attr, optname=None, *, type_, default=UNSET)
 	if val is None and self_value is UNSET and default is not UNSET:
 		setattr(obj, attr.replace('-', '_'), default)
 
-
+config: TmrConfig
 if any(arg in ('-h', '--help') for arg in sys.argv[1:]):
 	config = None
 else:

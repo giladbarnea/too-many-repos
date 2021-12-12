@@ -1,7 +1,6 @@
 #!/bin/python3.8
 import os
 import re
-import shlex
 import sys
 from collections import defaultdict
 from concurrent import futures as fut
@@ -223,8 +222,6 @@ from pdbpp import break_on_exc
 								'To exclude directories or gists with REGEX:',
 								"See [b]Ignore and configuration files section[/b] for examples.", ]
 							   ))
-@unrequired_opt('--gitdir-size-limit', default=100, metavar='SIZE_MB',
-				help='A dir is skipped if its .git dir size >= SIZE_MB')
 @unrequired_opt('-q', '--quiet', is_flag=True)
 @unrequired_opt('--gists', 'should_check_gists', is_flag=True, help='Look for local files that match files in own gists and diff them')
 @unrequired_opt('--repos/--no-repos', 'should_check_repos', default=True, help="Don't do any work with git repositories")
@@ -236,7 +233,6 @@ def main(
 		ctx,
 		parent_path: Path,
 		exclude_these: tuple,
-		gitdir_size_limit: int,
 		should_check_gists: bool = False,
 		should_check_repos: bool = True,
 		quiet: bool = False,
@@ -267,7 +263,6 @@ def main(
 	tmrignore.update_from_file(parent_path / '.tmrignore')
 
 	logger.debug((f"{parent_path = },\n"
-				  f"{gitdir_size_limit = },\n"
 				  f"{should_check_gists = },\n"
 				  f"{should_check_repos = },\n"
 				  f"{quiet = }"))
@@ -425,11 +420,14 @@ def usage(ctx, parent_path: Path):
 	helpstr = '\n'.join([
 		'\n' + h1(title),
 		rest,
+		
+		# Arguments / Options that are parsed manually (not by click)
 		f'  -v, --verbose LEVEL: INT\t  Can be specified e.g -vvv [default: 0]',
 		f'  --cache-mode MODE: STR\t  "r", "w", or "r+w" to write only if none was read [default: None]',
 		f'  --max-workers LIMIT: INT\t  Limit threads and processes [default: None]',
 		f'  --max-depth DEPTH: INT\t  [default: 1]',
 		f'  --difftool PATH: STR\t\t  [default: "diff"]',
+		f'  --gitdir-size-limit SIZE_MB: INT\t A dir is skipped if its .git dir size >= SIZE_MB [default: 100]',
 		f'',
 		h1(".tmrignore and .tmrrc.py files"),
 		*'\n  '.join(
@@ -447,7 +445,7 @@ def usage(ctx, parent_path: Path):
 				 f"{d(7)} `# .gist description`",
 				 f"{d(8)} Visual Studio Code Settings",
 				 f"{d(9)} foo\-\d{{4}}\n",
-
+				
 				 h2(".tmrrc.py"),
 				 f"A file containing a `config` object "
 				 f"with the following settable attributes:",
@@ -461,25 +459,25 @@ def usage(ctx, parent_path: Path):
 				 f"`config.cache.gist_list`: bool = None",
 				 f"`config.cache.gist_filenames`: bool = None",
 				 f"`config.cache.gist_content`: bool = None\n",
-				 "Note that cmdline opts have priority over settings in .tmrrc.py in case of conflict."
+				 "Note that cmdline opts have priority over settings in .tmrrc.py in case both are specified."
 				 ]
 				).splitlines()
 		])
 	helpstr = helpstr.replace('[default: ', '\[default: ')  # Escape because rich
 	helpstr = helpstr.replace('Options:', h1('Options:'))
-
+	
 	# `foo`
 	helpstr = re.sub(r'`(.+)`', lambda match: code(match.group(1)), helpstr)
-
+	
 	# SIZE_MB
 	helpstr = re.sub(r'(?<!: )\b\$?[A-Z_]{2,}\b', lambda match: kw(match.group()), helpstr)
-
+	
 	# : INT
 	helpstr = re.sub(r': (\b(STR|INT)\b)', lambda match: f' {ta(match.group())}', helpstr)
-
+	
 	# -h, --help
 	helpstr = re.sub(r'(-[a-z-]+)(,)?', lambda match: f'{arg(match.group(1))}{match.group(2) if match.group(2) else ""}', helpstr)
-
+	
 	# from rich import inspect
 	main.callback.__doc__ = helpstr
 	from rich.console import Console

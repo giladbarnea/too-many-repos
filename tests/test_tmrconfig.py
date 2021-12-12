@@ -38,8 +38,8 @@ VALID_CASES.update({
 	Literal['r', 'w']: {'r', 'w'},
 	})
 
-for type_ in (int, float, bool, str):
-	VALID_CASES[Optional[type_]] = VALID_CASES[type_] | VALID_CASES[None]
+for typ in (int, float, bool, str):
+	VALID_CASES[Optional[typ]] = VALID_CASES[typ] | VALID_CASES[None]
 
 VALID_CASES.update({
 	Union[Literal['r'], Literal['w']]:         {'r', 'w'},
@@ -59,8 +59,8 @@ INVALID_CASES = {
 	NoneType: VALID_BOOLS | VALID_FLOATS | VALID_STRS,
 	}
 
-for type_ in (int, float, bool, str):
-	INVALID_CASES[Optional[type_]] = INVALID_CASES[type_] - VALID_NONE
+for typ in (int, float, bool, str):
+	INVALID_CASES[Optional[typ]] = INVALID_CASES[typ] - VALID_NONE
 
 INVALID_CASES.update({
 	True:  INVALID_CASES[bool] | VALID_FALSE,
@@ -81,7 +81,7 @@ INVALID_CASES.update({
 	})
 
 
-def test_is_valid():
+def test_is_of_type():
 	for type_, values in VALID_CASES.items():
 		for val in values:
 			assert is_of_type(val, type_) is True

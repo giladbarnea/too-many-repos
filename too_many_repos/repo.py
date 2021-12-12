@@ -64,7 +64,7 @@ class Repo:
 
 	def is_gitdir_too_big(self) -> bool:	# Slow (10ms~100ms)
 		gitdir_size = 0
-		gitdir_size_limit_byte = config.gitdir_mb_limit * 1_000_000
+		gitdir_size_limit_byte = config.gitdir_size_limit_mb * 1_000_000
 		for entry in self.gitdir.glob('**/*'):
 			gitdir_size += entry.stat().st_size
 			if gitdir_size >= gitdir_size_limit_byte:
