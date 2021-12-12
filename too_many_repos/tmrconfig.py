@@ -100,7 +100,7 @@ def is_of_type(val: Optional[str], type_: Union[Type[None], str, bool, float, in
 
 
 def cast_type(val: Optional[str], type_: _O) -> _O:
-	"""Assumes `val` is valid"""
+	"""Assumes `val` is of type `type_`"""
 	if hasattr(type_, '__args__'):
 		# * type_ is a typing.<Foo>
 		type_origin = get_origin(type_)
