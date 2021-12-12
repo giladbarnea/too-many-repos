@@ -159,31 +159,32 @@ def pop_opt_from_sys_args(opt: str, type_: _O, *, check_short=False) -> _O:
 			return _arg.startswith(opt)
 
 	for i, arg in enumerate(sys.argv):
+		if not found_it(arg):
+			continue
 		# Handle 2 situations:
 		# 1) --opt=foo
 		# 2) --opt foo
-		if found_it(arg):
-			if '=' in arg:
-				# e.g. --opt=foo
-				specified_opt, _, val = arg.partition('=')
-				sys.argv.pop(i)
-				break
-
-			# e.g. --opt foo, -o foo
-			specified_opt = arg
+		if '=' in arg:
+			# e.g. --opt=foo
+			specified_opt, _, val = arg.partition('=')
 			sys.argv.pop(i)
-			try:
-				val = sys.argv[i]
-				sys.argv.pop(i)
-			except IndexError:
-				# e.g. --opt (no value)
-				if isinstance(type_, bool):
-					# --opt is a flag
-					val = True
-				else:
-					raise BadOptionUsage(opt, (f"{specified_opt} opt was specified without value. "
-											   f"accepted values: {type_}")) from None
-
+			break
+		
+		# e.g. --opt foo, -o foo
+		specified_opt = arg
+		sys.argv.pop(i)
+		try:
+			val = sys.argv[i]
+			sys.argv.pop(i)
+		except IndexError:
+			# e.g. --opt (no value)
+			if isinstance(type_, bool):
+				# --opt is a flag
+				val = True
+			else:
+				raise BadOptionUsage(opt, (f"{specified_opt} opt was specified without value. "
+										   f"accepted values: {type_}")) from None
+	
 	if not is_of_type(val, type_):
 		BadOptionUsage(opt, (f"{specified_opt} opt was specified with invalid value: {val!r}. "
 							 f"accepted values: {type_}"))
