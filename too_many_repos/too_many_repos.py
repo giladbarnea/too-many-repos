@@ -187,7 +187,7 @@ def populate_repos_recursively(path: Path, repos: List[Repo], *, max_depth) -> N
 		repo = Repo(path)
 
 		if repo.is_gitdir_too_big():
-			logger.warning(f"Main | [b]{repo.path}[/b]: skipping; .git dir size is above {config.gitdir_mb_limit}MB")
+			logger.warning(f"Main | [b]{repo.path}[/b]: skipping; .git dir size is above {config.gitdir_size_limit_mb}MB")
 		else:
 			repos.append(repo)
 	if max_depth <= 0:
