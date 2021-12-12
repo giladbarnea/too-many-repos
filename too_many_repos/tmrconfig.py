@@ -22,7 +22,7 @@ TYPE_VALUES = {
 	}
 
 
-def isnum(s: str) -> bool:
+def is_num(s: str) -> bool:
 	try:
 		float(s)
 		return True
@@ -30,11 +30,11 @@ def isnum(s: str) -> bool:
 		return False
 
 
-def is_valid(val: Optional[str], type_: Union[Type[None], str, bool, float, int, None]) -> bool:
+def is_of_type(val: Optional[str], type_: Union[Type[None], str, bool, float, int, None]) -> bool:
 	"""
-	val can be either a string representation of type_, or None.
+	`val` can be either a string representation of `type_`, or None.
 
-	type_ can be:
+	`type_` can be:
 
 	- type (e.g. bool)
 	- type of type (e.g. NoneType)
@@ -46,7 +46,7 @@ def is_valid(val: Optional[str], type_: Union[Type[None], str, bool, float, int,
 		# * type_ is not value / instance (e.g. bool, NoneType)
 
 		if type_ is NoneType:
-			# is_valid("None", NoneType) → True
+			# is_of_type("None", NoneType) → True
 			return val is None or val.lower() == 'none'
 
 		if val is None or val.lower() == 'none':
@@ -68,14 +68,14 @@ def is_valid(val: Optional[str], type_: Union[Type[None], str, bool, float, int,
 
 		if not type_ is str:
 			# collections (tuple etc)
-			raise NotImplementedError(f"is_valid(val = {repr(val)}, type = {repr(type_)})")
+			raise NotImplementedError(f"is_of_type(val = {repr(val)}, type = {repr(type_)})")
 
-		return not isnum(val) and not any(val in othervalues for othervalues in TYPE_VALUES.values())
+		return not is_num(val) and not any(val in othervalues for othervalues in TYPE_VALUES.values())
 
 	if not hasattr(type_, '__args__'):
 		# * type_ is a value / instance (e.g None, 'r', 5)
 		if type_ is None:
-			# is_valid("None", None) → True
+			# is_of_type("None", None) → True
 			return val is None or val.lower() == 'none'
 
 		if val is None or val.lower() == 'none':
@@ -94,13 +94,13 @@ def is_valid(val: Optional[str], type_: Union[Type[None], str, bool, float, int,
 
 	# * type_ is a typing.<Foo>
 	for arg in get_args(type_):
-		if is_valid(val, arg):
+		if is_of_type(val, arg):
 			return True
 	return False
 
 
 def cast_type(val: Optional[str], type_: _O) -> _O:
-	"""Assumes val is valid"""
+	"""Assumes `val` is valid"""
 	if hasattr(type_, '__args__'):
 		# * type_ is a typing.<Foo>
 		type_origin = get_origin(type_)
@@ -133,7 +133,7 @@ def cast_type(val: Optional[str], type_: _O) -> _O:
 	return type(type_)(val)
 
 
-def popopt(opt: str, type_: _O, *, check_short=False) -> _O:
+def pop_opt_from_sys_args(opt: str, type_: _O, *, check_short=False) -> _O:
 	"""
 	Tries to pop opt from sys.argv, validate its value and cast it by type_.
 
@@ -142,12 +142,12 @@ def popopt(opt: str, type_: _O, *, check_short=False) -> _O:
 	:param check_short: look for e.g. '-v'
 	:return: The type-casted value.
 
-	:raises BadOptionUsage if is_valid returns False
+	:raises BadOptionUsage if is_of_type returns False
 	"""
 
 	val = None
 	if not opt.startswith('--'):
-		raise ValueError(f"popopt({opt = }, ...) `opt` must start with '--'")
+		raise ValueError(f"pop_opt_from_sys_args({opt = !r}, ...) `opt` must start with '--'")
 
 	shopt = opt[1:3] if check_short else None
 	specified_opt = None  # For exceptions
@@ -184,8 +184,8 @@ def popopt(opt: str, type_: _O, *, check_short=False) -> _O:
 					raise BadOptionUsage(opt, (f"{specified_opt} opt was specified without value. "
 											   f"accepted values: {type_}")) from None
 
-	if not is_valid(val, type_):
-		BadOptionUsage(opt, (f"{specified_opt} opt was specified with invalid value: {repr(val)}. "
+	if not is_of_type(val, type_):
+		BadOptionUsage(opt, (f"{specified_opt} opt was specified with invalid value: {val!r}. "
 							 f"accepted values: {type_}"))
 	cast = cast_type(val, type_)
 	return cast
@@ -194,9 +194,9 @@ def popopt(opt: str, type_: _O, *, check_short=False) -> _O:
 def annoying_setattr(obj, attr, val):
 	self_value = getattr(obj, attr, UNSET)
 	if self_value is not UNSET:
-		logger.warning((f"[b]{attr}[/b] was specified both in config and cmd args."
-						f" config val ({repr(self_value)}) will be overwritten "
-						f"by the value passed via cmdline: {repr(val)}"))
+		logger.warning(f"[b]{attr}[/b] was specified both in config and cmd args."
+		               f" config val ({repr(self_value)}) will be overwritten "
+		               f"by the value passed via cmdline: {repr(val)}")
 	setattr(obj, attr, val)
 
 
@@ -222,7 +222,7 @@ class CacheConfig:
 								   type_=CacheMode, default='')
 
 	def __repr__(self):
-		rv = f"CacheConfig(path='{self.path}', mode='{self.mode}', "
+		rv = f"CacheConfig(path={self.path!r}, mode={self.mode!r}, "
 		for key, val in self.__dict__.items():
 			if key.startswith('_'):
 				continue
@@ -279,7 +279,7 @@ class TmrConfig(Singleton):
 		self.cache: CacheConfig = CacheConfig()
 		self.max_workers: Optional[int]
 		self.max_depth: int
-		self.gitdir_mb_limit: int = 100
+		self.gitdir_mb_limit: int
 		tmrrc = Path.home() / '.tmrrc.py'
 		exec_file(tmrrc, dict(config=self))
 		# ** At this point, self.* attrs may have loaded values from file
@@ -360,13 +360,13 @@ class TmrConfig(Singleton):
 def _try_set_opt_from_sys_args(obj, attr, optname=None, *, type_, default=UNSET) -> NoReturn:
 	if not optname:
 		optname = f'--{attr.replace("_", "-")}'
-	val = popopt(optname, type_)
+	val = pop_opt_from_sys_args(optname, type_)
 	if val is not None:
 		return annoying_setattr(obj, attr.replace('-', '_'), val)
 
 	self_value = getattr(obj, attr, UNSET)
 	if val is None and self_value is UNSET and default is not UNSET:
-		return setattr(obj, attr.replace('-', '_'), default)
+		setattr(obj, attr.replace('-', '_'), default)
 
 
 if any(arg in ('-h', '--help') for arg in sys.argv[1:]):

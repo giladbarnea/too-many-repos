@@ -1,7 +1,7 @@
 from typing import Literal, Union, Optional
 
 from too_many_repos.log import logger
-from too_many_repos.tmrconfig import is_valid, cast_type
+from too_many_repos.tmrconfig import is_of_type, cast_type
 
 NoneType = type(None)
 
@@ -84,11 +84,11 @@ INVALID_CASES.update({
 def test_is_valid():
 	for type_, values in VALID_CASES.items():
 		for val in values:
-			assert is_valid(val, type_) is True
+			assert is_of_type(val, type_) is True
 
 	for type_, values in INVALID_CASES.items():
 		for val in values:
-			assert is_valid(val, type_) is False
+			assert is_of_type(val, type_) is False
 
 
 def test_cast_type():
@@ -100,4 +100,4 @@ def test_cast_type():
 			else:
 				type_of_cast = type(cast)
 				logger.debug(f'[{"good" if type_of_cast is type_ else "warn"}]cast_type({repr(val)}, {repr(type_)}) → {repr(cast)}[/]')
-	# assert is_valid(val, type_) is True
+	# assert is_of_type(val, type_) is True
