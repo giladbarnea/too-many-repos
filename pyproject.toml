@@ -7,7 +7,7 @@ authors = ["Gilad Barnea <giladbrn@gmail.com>"]
 [tool.poetry.dependencies]
 python = "^3.8"
 click = "^7.1"
-rich = { git = "https://github.com/Textualize/rich.git", develop = true }
+rich = { version = "latest" }
 #rich = "^10.7.0"
 
 [tool.poetry.dev-dependencies]
