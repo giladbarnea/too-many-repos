@@ -40,6 +40,7 @@
 # Bugs
 ## Gists
 - [ ] when a gist includes several files (like micro settings) | p1
+- [ ] gists are downloaded even if ignored | p1
 - [ ] gist tmp file includes gist description
 - [ ] put the newer (gist or local) on the right (green) | p2
 
