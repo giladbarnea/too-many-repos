@@ -201,7 +201,7 @@ def populate_repos_recursively(path: Path, repos: List[Repo], *, max_depth) -> N
 # if not matching_gist:
 # 	continue
 # matching_gist.diff(file)
-from pdbpp import break_on_exc
+# from pdbpp import break_on_exc
 
 
 @click.command()
@@ -228,7 +228,7 @@ from pdbpp import break_on_exc
 @unrequired_opt('--no-fetch', is_flag=True, help="Don't fetch before working on a repo")
 @click.option('-h', '--help', is_flag=True, help='Show this message and exit.')
 @click.pass_context
-@break_on_exc(ValueError)
+# @break_on_exc(ValueError)
 def main(
 		ctx,
 		parent_path: Path,
