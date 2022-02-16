@@ -15,14 +15,14 @@ This makes ``tmr`` walk down the directory tree, display the status of each repo
 Install
 =======
 
-Clone the repo, ``poetry install`` it, and link or alias the ``bin/tmr`` file that was created in the virtual environment.
+Clone the repo, ``poetry install`` it, and link or alias the ``bin/tmr`` file that was created inside the virtual environment dir.
 
 
 .tmrignore and .tmrrc.py
 ========================
-Looked for in PARENT_PATH and $HOME.
+Looked for in ``PARENT_PATH`` and ``$HOME``.
 
-**``.tmrignore``**
+``**.tmrignore**``
 
 Each line is a ``STRING_OR_ADV_REGEX`` and is processed as if passed via ``EXCLUDE`` option.
 Lines that start with ``#`` are not parsed.
@@ -39,12 +39,11 @@ Example ``.tmrignore``::
   8 Visual Studio Code Settings
   9 foo\-\d{4}
 
-**``.tmrrc.py``**
+``**.tmrrc.py**``
 
 A file containing a config object with the following settable attributes:
 
 .. code-block:: python
-  :linenos:
   
     config.verbose: int = 0
     config.max_workers: int = None
