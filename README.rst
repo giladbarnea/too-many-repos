@@ -79,6 +79,10 @@ Usage
 
 ::
 
+  tmr [OPTIONS] [PARENT_PATH]
+
+  PARENT_PATH defaults to current directory.
+
   -e, --exclude STRING_OR_ADV_REGEX : STR
                                   Filters out directories and gists.
                                   Excluding PATHS by specifying:
