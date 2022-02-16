@@ -22,7 +22,7 @@ Clone the repo, ``poetry install`` it, and link or alias the ``bin/tmr`` file th
 ========================
 Looked for in ``PARENT_PATH`` and ``$HOME``.
 
-``**.tmrignore**``
+**.tmrignore**
 
 Each line is a ``STRING_OR_ADV_REGEX`` and is processed as if passed via ``EXCLUDE`` option.
 Lines that start with ``#`` are not parsed.
@@ -39,7 +39,7 @@ Example ``.tmrignore``::
   8 Visual Studio Code Settings
   9 foo\-\d{4}
 
-``**.tmrrc.py**``
+**.tmrrc.py**
 
 A file containing a config object with the following settable attributes:
 
@@ -51,28 +51,26 @@ A file containing a config object with the following settable attributes:
     config.difftool: str = 'diff'
     config.gitdir_size_limit_mb: int = 100
     config.cache.mode: 'r' | 'w' | 'r+w' = None
-    config.cache.path: str = '/home/gilad/.cache/too-many-repos'
+    config.cache.path: str = '$HOME/.cache/too-many-repos'
     config.cache.gist_list: bool = None
     config.cache.gist_filenames: bool = None
     config.cache.gist_content: bool = None
 
-Note that cmdline opts have priority over settings in .tmrrc.py in case both are specified.
+Note that cmdline opts have priority over settings in ``.tmrrc.py`` in case both are specified.
 
 Screenshots
 ===========
 
-A confirmation prompt when running ``tmr``:
-----
+**A confirmation prompt when running ``tmr``:**
+
 
 .. image:: ./docs/start-prompt.png
 
-A repo that can be fast-forwarded was found:
-----
+**A repo that can be fast-forwarded was found:**
 
 .. image:: ./docs/git-pull-prompt.png
 
-A repo with local changes was found:
-----
+**A repo with local changes was found:**
 
 .. image:: ./docs/launch-shell-prompt.png
 
