@@ -7,13 +7,13 @@ from click import BadOptionUsage
 from too_many_repos.log import logger
 from too_many_repos.singleton import Singleton
 from too_many_repos.util import exec_file
+from rich.traceback import install
+
+install(extra_lines=5, show_locals=True)
 
 CacheMode = Optional[Literal['r', 'w', 'r+w', 'w+r', 'rw', 'wr']]
 _O = TypeVar('_O')
 
-from rich.traceback import install
-
-install(extra_lines=5, show_locals=True)
 NoneType = type(None)
 UNSET = object()
 TYPE_VALUES = {
