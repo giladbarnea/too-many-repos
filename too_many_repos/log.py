@@ -47,7 +47,8 @@ class TmrConsole(Console):
 			theme = Theme({'#': 'rgb(120,120,120)',
 						   'warn': 'rgb(200,200,200) on rgb(40,40,0)',
 						   'good': 'green',
-						   'prompt': 'b bright_magenta'})
+						   'prompt': 'b bright_magenta',
+						   'code': 'rgb(125,125,125) i on rgb(25,25,25)',})
 		super().__init__(color_system=color_system, force_terminal=force_terminal, force_jupyter=force_jupyter, force_interactive=force_interactive, soft_wrap=soft_wrap, theme=theme, stderr=stderr, file=file,
 						 quiet=quiet, width=width, height=height, style=style, no_color=no_color, tab_size=tab_size, record=record, markup=markup, emoji=emoji, highlight=highlight, log_time=log_time, log_path=log_path,
 						 log_time_format=log_time_format, highlighter=highlighter, legacy_windows=legacy_windows, safe_box=safe_box, get_datetime=get_datetime, get_time=get_time, _environ=_environ)

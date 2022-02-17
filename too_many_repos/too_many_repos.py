@@ -16,7 +16,7 @@ from rich.prompt import Confirm, Prompt
 
 from too_many_repos import system
 from too_many_repos.gist import build_filename2gistfiles, Gist, GistFile
-from too_many_repos.log import logger, console
+from too_many_repos.log import logger
 from too_many_repos.repo import Repo, is_repo
 from too_many_repos.tmrconfig import config
 from too_many_repos.tmrignore import tmrignore
@@ -111,7 +111,7 @@ def reduce_to_single_gist_by_filename(file: Path, matching_gists: List[Gist]) ->
 		for i, gist in enumerate(matching_gists, start=1):
 			prompt += f"{i}] {gist}\n"
 		prompt += f"s] skip\n"
-		answer = Prompt.ask(prompt, choices=list(map(str, range(1, len(matching_gists) + 1))) + ['s'], console=console)
+		answer = Prompt.ask(prompt, choices=list(map(str, range(1, len(matching_gists) + 1))) + ['s'])
 		if answer == 's':
 			return None
 		gist = matching_gists[int(answer) - 1]

@@ -192,7 +192,7 @@ def pop_opt_from_sys_args(opt: str, type_: _O, *, check_short=False) -> _O:
 	return cast
 
 
-def annoying_setattr(obj, attr, val):
+def verbose_setattr(obj, attr, val):
 	self_value = getattr(obj, attr, UNSET)
 	if self_value is not UNSET:
 		logger.warning(f"[b]{attr}[/b] was specified both in config and cmd args."
@@ -206,7 +206,7 @@ class CacheConfig:
 	Mode dictates what to do with individual settings.
 	If unspecified (default), cache is completely disabled.
 
-	If mode is specified ('r' or 'w'), individual settings that were
+	If mode is specified ('r', 'w' or 'r+w'), individual settings that were
 	unspecified (default) are set to True.
 
 	If mode has both 'r' and 'w', cache is only written if none was read.
@@ -355,9 +355,9 @@ class TmrConfig(Singleton):
 	def _try_set_verbose_level_from_sys_args(self, default=UNSET) -> NoReturn:
 		level = TmrConfig._get_verbose_level_from_sys_argv()
 		if level is None and default is not UNSET:
-			annoying_setattr(self, 'verbose', default)
+			verbose_setattr(self, 'verbose', default)
 		if level is not None:
-			annoying_setattr(self, 'verbose', level)
+			verbose_setattr(self, 'verbose', level)
 
 
 def _try_set_opt_from_sys_args(obj, attr, optname=None, *, type_, default=UNSET) -> NoReturn:
@@ -365,7 +365,7 @@ def _try_set_opt_from_sys_args(obj, attr, optname=None, *, type_, default=UNSET)
 		optname = f'--{attr.replace("_", "-")}'
 	val = pop_opt_from_sys_args(optname, type_)
 	if val is not None:
-		return annoying_setattr(obj, attr.replace('-', '_'), val)
+		return verbose_setattr(obj, attr.replace('-', '_'), val)
 
 	self_value = getattr(obj, attr, UNSET)
 	if val is None and self_value is UNSET and default is not UNSET:

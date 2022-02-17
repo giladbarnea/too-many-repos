@@ -1,16 +1,17 @@
 import pickle
-from typing import List, Optional
+from typing import List, Optional, Any
 
 from too_many_repos.log import logger
 from too_many_repos.singleton import Singleton
 from too_many_repos.tmrconfig import config
 
 
-def safe_load(file_name: str):
+def safe_load_pickle(file_name: str) -> Optional[Any]:
+	"""Loads config.cache.path / {file_name}.pickle, or None if doesn't exist"""
 	try:
 		with (config.cache.path / f'{file_name}.pickle').open(mode='r+b') as cached:
 			return pickle.load(cached)
-	except FileNotFoundError as e:
+	except FileNotFoundError:
 		return None
 
 
@@ -20,7 +21,7 @@ class Cache(Singleton):
 
 	@property
 	def gist_list(self) -> Optional[List[str]]:
-		gist_list = safe_load('gist_list')
+		gist_list = safe_load_pickle('gist_list')
 		logger.debug(f'Cache | gists list → {"None" if gist_list is None else "OK"}')
 		return gist_list
 
@@ -32,7 +33,7 @@ class Cache(Singleton):
 
 	@staticmethod
 	def get_gist_filenames(gist_id: str) -> Optional[List[str]]:
-		gist_filenames = safe_load(f'gist_{gist_id}_filenames')
+		gist_filenames = safe_load_pickle(f'gist_{gist_id}_filenames')
 		logger.debug(f'Cache | filenames of {gist_id[:8]} → {"None" if gist_filenames is None else "OK"}')
 		return gist_filenames
 
@@ -44,7 +45,7 @@ class Cache(Singleton):
 
 	@staticmethod
 	def get_gist_file_content(gist_id: str, file_name: str) -> Optional[str]:
-		gist_file_content = safe_load(f'gist_{gist_id}_{file_name}')
+		gist_file_content = safe_load_pickle(f'gist_{gist_id}_{file_name}')
 		logger.debug(f'Cache | file contents of [b]{file_name}[/b] of {gist_id[:8]} → {"None" if gist_file_content is None else "OK"}')
 		return gist_file_content
 
