@@ -373,14 +373,23 @@ def main(
 
 		if has_local_modified_files:
 			if 'behind' in repo.status:
-				logger.info(f'[b]{repo.path}[/b]: has local modifications, and is behind')
+				if Confirm.ask(f'[prompt][b]{repo.path}[/b]: has local modifications, and is behind. '
+				               f'Launch a temporary [b]{config.shell}[/b] console?[/]'):
+					os.system(f'{config.shell} -l')
 				continue
+
 			if 'ahead' in repo.status:
-				if Confirm.ask(f'[prompt][b]{repo.path}[/b]: push origin {remotes.current_branch}?[/]'):
-					logger.info('pushing...')
+				prompt = (f'[b]{repo.path}[/b]: \[p]ush origin {remotes.current_branch}, '
+				          f'or launch a temporary [b]{config.shell}[/b] \[c]onsole?[/]')
+				answer = Prompt.ask(prompt, choices=['p', 'c'])
+				if answer == 'p':
+					logger.info('Pushing...')
 					os.system(f'git push origin "{remotes.current_branch}"')
 					print()
+				else:
+					os.system(f'{config.shell} -l')
 				continue
+
 			# has local modifications, not ahead and not behind. can be pushed
 			if Confirm.ask(f'[prompt][b]{repo.path}[/b]: has local modifications. Launch a temporary [b]{config.shell}[/b] console?[/]'):
 				os.system(f'{config.shell} -l')
@@ -392,13 +401,15 @@ def main(
 			if quiet:
 				logger.info("[prompt]Would've prompted git pull, but quiet=True")
 			else:
-
-				if Confirm.ask(f'[prompt][b]{repo.path}[/b]: git pull?[/]'):
-					logger.info('pulling...')
+				prompt = (f'[b]{repo.path}[/b]: git \[p]ull, '
+				          f'or launch a temporary [b]{config.shell}[/b] \[c]onsole?[/]')
+				answer = Prompt.ask(prompt, choices=['p', 'c'])
+				if answer == 'p':
+					logger.info('Pulling...')
 					os.system('git pull')
 					print()
 				else:
-					logger.warning('not pulling')
+					os.system(f'{config.shell} -l')
 
 		# * end of main loop
 		os.chdir(parent_path)
