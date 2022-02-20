@@ -1,25 +1,26 @@
 # Features
 ## Logic
-- [ ] `--difftool code`
 - [ ] `tmr ignore`
   - [ ] `tmr ignore <path>`
   - [ ] `tmr ignore <string>`
   - [ ] `tmr ignore show`
 - [ ] `tmr -u`    # don't honor .tmrignore file
   - [ ] `tmr -u <path / string>`    # don't ignore specific entry
+- [x] `--difftool code`
 
 ## `.tmrignore`
 - [ ] support for env vars e.g. $HOME/.gitignore
-- [ ] support for #comments
 - [ ] support for ignoring by repo url
+- [ ] support for # -i or # --case-insensitive at line end
+- [x] support for #comments
 
 ## `.tmrrc`
 - [ ] `diff` rules
   - [ ] ignore difference in line order (think .ignore files)
-  - [ ] ignore #comments
   - [ ] `diff gist` rules
     - [ ] "count as same when:"
       - [ ] local is subset
+  - [x] ignore #comments
 
 # Improvements
 ## Gists
@@ -47,6 +48,8 @@
 ## Repos 
 - [ ] repos are checked for .git dir size even if ignored
 
+## `.tmrignore`
+- [ ] only full gist ids are matched. should match first 4 chars
 # Thoughts
 - If upstream != origin, and tracking == origin/*, warn? warning rules in .tmrrc?
 - "Your branch is based on 'origin/master', but the upstream is gone.
