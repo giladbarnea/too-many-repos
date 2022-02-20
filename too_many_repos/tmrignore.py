@@ -2,6 +2,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Iterable, Set, Union, ForwardRef, List
+from contextlib import suppress
 
 from too_many_repos.log import logger
 from too_many_repos.singleton import Singleton
@@ -46,10 +47,10 @@ class Ignorable:
 		# 	self._init_(value)
 		return self
 
-	def __eq__(self, o: object) -> bool:
-		if isinstance(o, Ignorable):
-			return self._val == o._val
-		return self._val == o
+	def __eq__(self, other) -> bool:
+		if hasattr(other, '_val'):
+			return self._val == other._val
+		return self._val == other
 
 	def __hash__(self) -> int:
 		return hash(self._val)
@@ -69,27 +70,29 @@ class Ignorable:
 
 	def exists(self) -> bool:
 		if isinstance(self._val, re.Pattern):
-			logger.warning(f"{repr(self)}.exists() was called but self._val is a re.Pattern. not implemented.")
+			logger.warning(f"{self.__class__.__qualname__}.exists() was called but self._val is a re.Pattern. not implemented.")
+			return False
 		else:
 			return Path(self._val).exists()
 
 	def matches(self, other: IgnorableType) -> bool:
 		# TODO: bug: only full gist ids are matched here
+		"""self._val is a line in .tmrignore, 'other' is a path or gist id/description."""
 		if isinstance(self._val, re.Pattern):
 			return self._val.search(str(other)) is not None
 		_valpath = Path(self._val)
 		if _valpath.is_absolute():
-			# `self._val` is an absolute path: '/home/gilad', so
-			# `other` has to be >= `self._val`, e.g '/home/gilad[/Code]'
+			# self._val is an absolute path: '/home/gilad', so
+			# 'other' is ignored if it's equal or longer than self._val, e.g other='/home/gilad/dev'
 			return str(other).startswith(self._val)
+		
 		if len(_valpath.parts) > 1:
-			# `self._val` is a few parts, but not an absolute path: 'gilad/dev', so
-			# `other` has to contain it (e.g. '/home/gilad/dev[/...]')
-			
+			# self._val is a few parts, but not an absolute path: 'gilad/dev', so
+			# 'other' is ignored it if contains self._val (e.g. other='/home/gilad/dev')
 			return self._val in str(other)
 
-		# `self._val` is just a name: 'dev';
-		# any part of `other` has to equal (e.g. 'gilad/dev/too-many-repos')
+		# self._val is just a name: 'dev';
+		# 'other' is ignored if any part of it equals self._val (e.g. other='gilad/dev/too-many-repos')
 		for otherpart in Path(other).parts:
 			if otherpart == self._val:
 				return True
@@ -134,7 +137,7 @@ class TmrIgnore(Set[Ignorable], Singleton):
 			table.add_row(*row)
 		return table
 
-	def is_ignored(self, element: IgnorableType):
+	def is_ignored(self, element: IgnorableType) -> bool:
 		for ignorable in self:
 			if ignorable.matches(element):
 				return True
@@ -143,8 +146,13 @@ class TmrIgnore(Set[Ignorable], Singleton):
 	def add(self, element: IgnorableType) -> None:
 		if not element:
 			return
+		with suppress(AttributeError, TypeError):
+			if element.startswith('#'):
+				return
+			if '#' in element:
+				element = element.split('#', 1)[0].strip()
 		ignorable = Ignorable(element)
-		ignorable_was_in_self = ignorable in self
+		# ignorable_was_in_self = ignorable in self
 		super().add(ignorable)
 		# if ignorable_was_in_self:
 		# 	breakpoint()
@@ -170,8 +178,6 @@ class TmrIgnore(Set[Ignorable], Singleton):
 			logger.good(f"Loaded ignore file successfully: {ignorefile}")
 
 		for exclude in entries:
-			if exclude.startswith('#'):
-				continue
 			self.add(exclude)
 
 
