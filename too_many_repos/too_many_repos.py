@@ -380,13 +380,14 @@ def main(
 
 			if 'ahead' in repo.status:
 				prompt = (f'[b]{repo.path}[/b]: \[p]ush origin {remotes.current_branch}, '
-				          f'or launch a temporary [b]{config.shell}[/b] \[c]onsole?[/]')
-				answer = Prompt.ask(prompt, choices=['p', 'c'])
+				          f'launch a temporary [b]{config.shell}[/b] \[c]onsole, '
+				          f'or do \[n]othing?')
+				answer = Prompt.ask(prompt, choices=['p', 'c', 'n'])
 				if answer == 'p':
 					logger.info('Pushing...')
 					os.system(f'git push origin "{remotes.current_branch}"')
 					print()
-				else:
+				elif answer == 'c':
 					os.system(f'{config.shell} -l')
 				continue
 
@@ -402,16 +403,18 @@ def main(
 				logger.info("[prompt]Would've prompted git pull, but quiet=True")
 			else:
 				prompt = (f'[b]{repo.path}[/b]: git \[p]ull, '
-				          f'or launch a temporary [b]{config.shell}[/b] \[c]onsole?[/]')
-				answer = Prompt.ask(prompt, choices=['p', 'c'])
+				          f'launch a temporary [b]{config.shell}[/b] \[c]onsole, '
+				          f'or do \[n]othing?')
+				answer = Prompt.ask(prompt, choices=['p', 'c', 'n'])
 				if answer == 'p':
 					logger.info('Pulling...')
 					os.system('git pull')
 					print()
-				else:
+				elif answer == 'c':
 					os.system(f'{config.shell} -l')
+			continue
 
-		# * end of main loop
+		# * end of main loop: go back to parent directory
 		os.chdir(parent_path)
 
 
