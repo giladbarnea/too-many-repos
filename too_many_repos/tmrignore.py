@@ -76,10 +76,14 @@ class Ignorable:
 			return Path(self._val).exists()
 
 	def matches(self, other: IgnorableType) -> bool:
-		# TODO: bug: only full gist ids are matched here
+		# TODO: bug: only full gist ids
 		"""self._val is a line in .tmrignore, 'other' is a path or gist id/description."""
 		if isinstance(self._val, re.Pattern):
 			return self._val.search(str(other)) is not None
+
+		if str(self._val) in str(other).split():
+			return True
+
 		_valpath = Path(self._val)
 		if _valpath.is_absolute():
 			# self._val is an absolute path: '/home/gilad', so
