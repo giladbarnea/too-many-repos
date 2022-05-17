@@ -9,3 +9,7 @@ class Singleton:
             return getattr(cls, '_inst')
         inst = super().__new__(cls)
         return inst
+    def __copy__(self):
+        return self
+    def __deepcopy__(self):
+        return self
