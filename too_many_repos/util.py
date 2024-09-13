@@ -1,3 +1,4 @@
+from collections.abc import Generator
 import typing
 from pathlib import Path
 
@@ -124,3 +125,23 @@ def required_opt(*param_decls, **attrs):
 
 	attrs['required'] = True
 	return option(*param_decls, **attrs)
+
+def safe_is_file(path: Path) -> bool:
+	try:
+		return path.is_file()
+	except PermissionError:
+		return False
+	
+def safe_is_dir(path: Path) -> bool:
+	try:
+		return path.is_dir()
+	except PermissionError:
+		return False
+	
+def safe_glob(path: Path, pattern: str) -> Generator[Path, None, None]:
+    """Wraps glob to skip paths that raise PermissionError, and resume iterating when this happens."""
+    try:
+        for subpath in path.glob(pattern):
+            yield subpath
+    except PermissionError:
+        pass

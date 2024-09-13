@@ -1,4 +1,5 @@
 #!/bin/python3.8
+from collections.abc import Generator
 import os
 import re
 import sys
@@ -20,7 +21,7 @@ from too_many_repos.log import logger
 from too_many_repos.repo import Repo, is_repo
 from too_many_repos.tmrconfig import config
 from too_many_repos.tmrignore import tmrignore
-from too_many_repos.util import unrequired_opt
+from too_many_repos.util import safe_glob, safe_is_dir, safe_is_file, unrequired_opt
 
 THIS_FILE_STEM = Path(__file__).stem
 
@@ -51,8 +52,8 @@ def diff_gist(entry: Path, gist: Gist, live, quiet):
 		tmp.write('\n'.join(entry_lines))
 	# if '.git_status_subdirs_ignore' in str(entry):
 	#     live.stop()
-	diff = system.run(f'diff -ZbwBu --strip-trailing-cr --suppress-blank-empty "{tmp_stripped_gist_file_path}" "{tmp_stripped_file_path}"')
-	if diff:
+	same = system.diff_quiet(f'"{tmp_stripped_gist_file_path}" "{tmp_stripped_file_path}"')
+	if not same:
 		# gist_date = id2props[gist_id].get('date')
 		prompt = f"[b]{entry.absolute()}[/b]: file and gist {gist.id} ('{gist.description[:32]}') are different"
 		try:
@@ -97,7 +98,10 @@ def diff_gist(entry: Path, gist: Gist, live, quiet):
 				# also don't add diff flags like above, and the overwrite is intentional
 				with open(tmp_stripped_gist_file_path, mode='w') as tmp:
 					tmp.write(gist.content)
-				os.system(f'diff -ZuB --strip-trailing-cr "{tmp_stripped_gist_file_path}" "{entry.absolute()}" | delta')
+				# os.system(f'diff -ZuB --strip-trailing-cr "{tmp_stripped_gist_file_path}" "{entry.absolute()}" | delta')
+				# os.system(f'diff --ignore-trailing-space -u --quiet --strip-trailing-cr "{tmp_stripped_gist_file_path}" "{entry.absolute()}" | delta')
+				system.diff_interactive(f'"{tmp_stripped_gist_file_path}" "{entry.absolute()}" | delta')
+
 			live.start()
 	else:
 		logger.good(f"[b]{entry.absolute()}[/b]: file and gist {gist.id[:16]} ('{gist.description[:32]}') file are identical")
@@ -128,7 +132,6 @@ def get_direct_subdirs(path: Path) -> List[Path]:
 		direct_subdirs.append(subdir)
 	return direct_subdirs
 
-
 def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[GistFile]], *, max_depth) -> Dict[Path, List[GistFile]]:
 	"""
 	Goes over files inside path and diffs them against any matching gist.
@@ -143,7 +146,7 @@ def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[G
 		config.verbose >= 2 and logger.warning(f"Main | [b]{path}[/b]: skipping; excluded")
 		return defaultdict(list)
 	need_user: Dict[Path, List[GistFile]] = defaultdict(list)
-	if path.is_file():
+	if safe_is_file(path):
 		# ignored subdirs are checked recursively
 		if tmrignore.is_ignored(path.absolute()):
 			config.verbose >= 3 and logger.warning(f"Main | [b]{path}[/b]: skipping; excluded")
@@ -163,7 +166,7 @@ def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[G
 		return defaultdict(list)
 	config.verbose >= 3 and logger.debug(f'Main | Looking for gists to diff inside {path}...')
 
-	if path.is_dir():
+	if safe_is_dir(path):
 		for subpath in path.glob('*'):
 			update = diff_recursively_with_gists(subpath, filename2gistfiles, max_depth=max_depth - 1)
 			if update:
@@ -172,10 +175,10 @@ def diff_recursively_with_gists(path: Path, filename2gistfiles: Dict[str, List[G
 	return need_user
 
 
-def populate_repos_recursively(path: Path, repos: List[Repo], *, max_depth) -> NoReturn:
+def populate_repos_recursively(path: Path, repos: List[Repo], *, max_depth) -> None:
 	config.verbose >= 3 and logger.debug(f'Main | Populating repos inside {path}...')
 
-	if path.is_file():
+	if safe_is_file(path):
 		config.verbose >= 3 and logger.debug(f'Main | {path} is a file')
 		return
 
@@ -193,8 +196,10 @@ def populate_repos_recursively(path: Path, repos: List[Repo], *, max_depth) -> N
 	if max_depth <= 0:
 		config.verbose >= 3 and logger.debug(f'Main | Reached {max_depth = } in {path}')
 		return
-	for subpath in path.glob('*'):
+	for subpath in safe_glob(path, "*"):
 		populate_repos_recursively(subpath, repos, max_depth=max_depth - 1)
+
+
 
 
 # matching_gist = reduce_to_single_gist_by_filename(file, gistfiles)
@@ -283,6 +288,7 @@ def main(
 		# * populate gist.files
 		direct_subdirs = get_direct_subdirs(parent_path)
 		max_workers = min((direct_subdirs_len := len(direct_subdirs)), config.max_workers or direct_subdirs_len) or 1
+		max_workers: int = min(max_workers, 32)
 		logger.info(f'\nMain | Diffing gists recursively in {max_workers} threads...')
 		need_user: Dict[Path, List[GistFile]] = defaultdict(list)
 		with fut.ThreadPoolExecutor(max_workers) as xtr:
@@ -327,6 +333,7 @@ def main(
 
 	# * fetch
 	max_workers = min((repos_len := len(repos)), config.max_workers or repos_len)
+	max_workers: int = min(max_workers, 32)
 	if not no_fetch:
 		logger.info(f'Main | Fetching {len(repos)} repos in {max_workers} processes...')
 		with ProcPool(max_workers) as pool:
@@ -434,7 +441,7 @@ def usage(ctx, parent_path: Path):
 	helpstr = '\n'.join([
 		'\n' + h1(title),
 		rest,
-		
+
 		# Arguments / Options that are parsed manually (not by click)
 		f'  -v, --verbose LEVEL: INT\t  Can be specified e.g -vvv [default: 0]',
 		f'  --cache-mode MODE: STR\t  "r", "w", or "r+w" to write only if none was read [default: None]',
@@ -459,7 +466,7 @@ def usage(ctx, parent_path: Path):
 				 f"{d(7)} `# .gist description`",
 				 f"{d(8)} Visual Studio Code Settings",
 				 f"{d(9)} foo\-\d{{4}}\n",
-				
+
 				 h2(".tmrrc.py"),
 				 f"A file containing a `config` object "
 				 f"with the following settable attributes:",
@@ -479,19 +486,19 @@ def usage(ctx, parent_path: Path):
 		])
 	helpstr = helpstr.replace('[default: ', '\[default: ')  # Escape because rich
 	helpstr = helpstr.replace('Options:', h1('Options:'))
-	
+
 	# `foo`
 	helpstr = re.sub(r'`(.+)`', lambda match: code(match.group(1)), helpstr)
-	
+
 	# SIZE_MB
 	helpstr = re.sub(r'(?<!: )\b\$?[A-Z_]{2,}\b', lambda match: kw(match.group()), helpstr)
-	
+
 	# : INT
 	helpstr = re.sub(r': (\b(STR|INT)\b)', lambda match: f' {ta(match.group())}', helpstr)
-	
+
 	# -h, --help
 	helpstr = re.sub(r'(-[a-z-]+)(,)?', lambda match: f'{arg(match.group(1))}{match.group(2) if match.group(2) else ""}', helpstr)
-	
+
 	# from rich import inspect
 	main.callback.__doc__ = helpstr
 	from rich.console import Console

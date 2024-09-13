@@ -3,7 +3,7 @@ import subprocess as sp
 from collections import namedtuple
 from contextlib import contextmanager
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, Generator, NoReturn
 
 from too_many_repos import system
 from too_many_repos.log import logger
@@ -14,7 +14,7 @@ Remotes = namedtuple('Remotes', ['origin', 'upstream', 'tracking', 'current_bran
 
 
 @contextmanager
-def visit_dir(path):
+def visit_dir(path) -> Generator[None, Any, None]:
 	prev_cwd = os.getcwd()
 	try:
 		os.chdir(path)

@@ -1,17 +1,21 @@
+from collections.abc import Callable
+import os
 import sys
 from pathlib import Path
-from typing import Optional, Literal, TypeVar, NoReturn, get_origin, get_args, Union, Type
+from typing import Any, Optional, Literal, Type, TypeVar, Union
+import typing
 
 from click import BadOptionUsage
 
 from too_many_repos.log import logger
 from too_many_repos.singleton import Singleton
 from too_many_repos.util import exec_file
-from rich.traceback import install
+from rich.traceback import install as rich_traceback_install
 
-install(extra_lines=5, show_locals=True)
+rich_traceback_install(extra_lines=5, show_locals=True, suppress=(".venv",))
 
 CacheMode = Optional[Literal['r', 'w', 'r+w', 'w+r', 'rw', 'wr']]
+Shell = Literal['zsh', 'bash']
 _O = TypeVar('_O')
 
 NoneType = type(None)
@@ -20,6 +24,27 @@ TYPE_VALUES = {
 	bool:     ('true', 'false', 'yes', 'no'),
 	NoneType: ('none', None)
 	}
+
+def get_system_shell() -> Shell:
+    try:
+        shell = os.environ['SHELL']
+    except KeyError:
+        # If $SHELL is not set, try to determine the default shell
+        if is_macos():
+            # On macOS, the default shell is usually zsh
+            return 'zsh'
+        else:
+            # On other Unix-like systems, the default shell is usually bash
+            return 'bash'
+    else:
+        if 'zsh' in shell:
+            return 'zsh'
+        elif 'bash' in shell:
+            return 'bash'
+        else:
+            # If the shell is not zsh or bash, return 'bash' as a fallback
+            return 'bash'
+
 
 
 def is_num(s: str) -> bool:
@@ -66,7 +91,7 @@ def is_of_type(val: Optional[str], type_: Union[Type[None], str, bool, float, in
 				# ValueError when int("5.5")
 				return False
 
-		if not type_ is str:
+		if type_ is not str:
 			# collections (tuple etc)
 			raise NotImplementedError(f"is_of_type(val = {repr(val)}, type = {repr(type_)})")
 
@@ -93,7 +118,7 @@ def is_of_type(val: Optional[str], type_: Union[Type[None], str, bool, float, in
 		return val == str(type_)
 
 	# * type_ is a typing.<Foo>
-	for arg in get_args(type_):
+	for arg in typing.get_args(type_):
 		if is_of_type(val, arg):
 			return True
 	return False
@@ -103,8 +128,8 @@ def cast_type(val: Optional[str], type_: _O) -> _O:
 	"""Assumes `val` is of type `type_`"""
 	if hasattr(type_, '__args__'):
 		# * type_ is a typing.<Foo>
-		type_origin = get_origin(type_)
-		type_args = set(get_args(type_))
+		type_origin = typing.get_origin(type_)
+		type_args = set(typing.get_args(type_))
 		if type_origin is Union:
 			if NoneType in type_args:
 				if val in (None, 'NONE', 'None', 'none'):
@@ -231,21 +256,21 @@ class CacheConfig:
 		return rv[:-2] + ')'
 
 	@property
-	def path(self):
+	def path(self) -> Path:
 		return self._path
 
 	@path.setter
-	def path(self, path: Union[str, Path]):
+	def path(self, path: Union[str, Path]) -> None:
 		self._path = Path(path)
 		if not self._path.is_dir():
 			self._path.mkdir(parents=True)
 
 	@property
-	def mode(self):
+	def mode(self) -> CacheMode:
 		return self._mode
 
 	@mode.setter
-	def mode(self, mode: CacheMode):
+	def mode(self, mode: CacheMode) -> None:
 		self._mode = mode
 		if self._mode:
 			if self.gist_list is None:
@@ -268,7 +293,7 @@ class TmrConfig(Singleton):
 	max_depth: int
 	gitdir_size_limit_mb: int
 	difftool: str
-	shell: str
+	shell: Shell
 
 	def __init__(self):
 		super().__init__()
@@ -296,15 +321,15 @@ class TmrConfig(Singleton):
 
 		_try_set_opt_from_sys_args(self, 'difftool', type_=Optional[str], default='diff')
 		
-		_try_set_opt_from_sys_args(self, 'shell', type_=Optional[str], default='bash')
-
+		_try_set_opt_from_sys_args(self, 'shell', type_=Optional[str], default=get_system_shell)
+		
 	def __repr__(self):
-		rv = f"TmrConfig()"
+		rv = "TmrConfig()"
 		for key, val in self.__dict__.items():
 			rv += f'\n    {key}: {repr(val) if isinstance(val, str) else val}'
 		return rv
 
-	def _handle_unknown_attributes(self, *, how: Literal['warn', 'raise']) -> NoReturn:
+	def _handle_unknown_attributes(self, *, how: Literal['warn', 'raise']) -> None:
 		unknowns = set(self.__dict__.keys()) - set(self.__annotations__.keys())
 		if not unknowns:
 			return
@@ -352,7 +377,7 @@ class TmrConfig(Singleton):
 				return level
 		return None
 
-	def _try_set_verbose_level_from_sys_args(self, default=UNSET) -> NoReturn:
+	def _try_set_verbose_level_from_sys_args(self, default=UNSET) -> None:
 		level = TmrConfig._get_verbose_level_from_sys_argv()
 		if level is None and default is not UNSET:
 			verbose_setattr(self, 'verbose', default)
@@ -360,7 +385,7 @@ class TmrConfig(Singleton):
 			verbose_setattr(self, 'verbose', level)
 
 
-def _try_set_opt_from_sys_args(obj, attr, optname=None, *, type_, default=UNSET) -> NoReturn:
+def _try_set_opt_from_sys_args(obj, attr, optname=None, *, type_, default: Union[Any, Callable]=UNSET) -> None:
 	if not optname:
 		optname = f'--{attr.replace("_", "-")}'
 	val = pop_opt_from_sys_args(optname, type_)
@@ -369,6 +394,8 @@ def _try_set_opt_from_sys_args(obj, attr, optname=None, *, type_, default=UNSET)
 
 	self_value = getattr(obj, attr, UNSET)
 	if val is None and self_value is UNSET and default is not UNSET:
+		if callable(default):
+			default = default()
 		setattr(obj, attr.replace('-', '_'), default)
 
 config: TmrConfig
