@@ -9,6 +9,7 @@ from click import BadOptionUsage
 
 from too_many_repos.log import logger
 from too_many_repos.singleton import Singleton
+from too_many_repos.system import is_macos
 from too_many_repos.util import exec_file
 from rich.traceback import install as rich_traceback_install
 
@@ -55,7 +56,7 @@ def is_num(s: str) -> bool:
 		return False
 
 
-def is_of_type(val: Optional[str], type_: Union[Type[None], str, bool, float, int, None]) -> bool:
+def is_of_type(val: Optional[str], type_: Union[NoneType, str, bool, float, int, None]) -> bool:
 	"""
 	`val` can be either a string representation of `type_`, or None.
 
