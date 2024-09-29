@@ -1,5 +1,4 @@
 #!/bin/python3.8
-from collections.abc import Generator
 import os
 import re
 import sys
@@ -9,7 +8,7 @@ from datetime import datetime as dt
 from datetime import timedelta
 from multiprocessing import Pool as ProcPool
 from pathlib import Path
-from typing import List, Dict, Optional, NoReturn
+from typing import List, Dict, Optional
 
 import click
 from rich import print

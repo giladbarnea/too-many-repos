@@ -89,7 +89,7 @@ class Ignorable:
 			# self._val is an absolute path: '/home/gilad', so
 			# 'other' is ignored if it's equal or longer than self._val, e.g other='/home/gilad/dev'
 			return str(other).startswith(self._val)
-		
+
 		if len(_valpath.parts) > 1:
 			# self._val is a few parts, but not an absolute path: 'gilad/dev', so
 			# 'other' is ignored it if contains self._val (e.g. other='/home/gilad/dev')
@@ -151,6 +151,9 @@ class TmrIgnore(Set[Ignorable], Singleton):
 		if not element:
 			return
 		with suppress(AttributeError, TypeError):
+			element = element.strip()
+			if not element:
+				return
 			if element.startswith('#'):
 				return
 			if '#' in element:
@@ -168,7 +171,7 @@ class TmrIgnore(Set[Ignorable], Singleton):
 			self.add(element)
 
 	def update_from_file(self, ignorefile: Path):
-		def exc_fmt(_e):
+		def exception_format(_e: Exception) -> str:
 			return f"TmrIgnore.update_from_file({ignorefile}) | {_e.__class__.__qualname__} : {_e}"
 
 		entries = set()
@@ -177,7 +180,7 @@ class TmrIgnore(Set[Ignorable], Singleton):
 		except FileNotFoundError as fnfe:
 			pass
 		except Exception as e:
-			logger.warning(exc_fmt(e))
+			logger.warning(exception_format(e))
 		else:
 			logger.good(f"Loaded ignore file successfully: {ignorefile}")
 
