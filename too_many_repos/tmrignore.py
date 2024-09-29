@@ -76,7 +76,8 @@ class Ignorable:
 			return Path(self._val).exists()
 
 	def matches(self, other: IgnorableType) -> bool:
-		# TODO: bug: only full gist ids
+		# TODO: 1. bug: only full gist ids
+		#  2. this is case sensitive, should be case insensitive? (regex)
 		"""self._val is a line in .tmrignore, 'other' is a path or gist id/description."""
 		if isinstance(self._val, re.Pattern):
 			return self._val.search(str(other)) is not None
