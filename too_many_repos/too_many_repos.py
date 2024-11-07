@@ -310,9 +310,9 @@ def main(
 							# Break down e.g `code --disable-extensions --diff` to `"code" --disable-extensions --diff`
 							difftool, *difftool_args = config.difftool.split()
 							if re.match(r'^(meld|code|pycharm)', config.difftool):
-								os.system(f'nohup "{difftool}" {" ".join(difftool_args)} "{path}" "{gistfile.tmp_path}" 2>1 1>/dev/null &')
+								os.system(f'nohup "{difftool}" {" ".join(difftool_args)} "{path}" "{gistfile.gist_file_temp_path}" 2>1 1>/dev/null &')
 							else:
-								os.system(f'"{difftool}" {" ".join(difftool_args)} "{path}" "{gistfile.tmp_path}"')
+								os.system(f'"{difftool}" {" ".join(difftool_args)} "{path}" "{gistfile.gist_file_temp_path}"')
 					else:
 						logger.info(f"[b]Diff '{path.absolute()}'[/b] and [b]{gistfile.gist.short()}[/b] are [b green]identical[/]")
 

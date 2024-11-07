@@ -1,4 +1,5 @@
 import os
+import typing
 from collections import defaultdict
 from concurrent import futures as fut
 from dataclasses import dataclass, field
@@ -17,8 +18,8 @@ Difference = Literal['whitespace', 'content', 'order', False]
 class GistFile:
     content: str
     stripped_content: str
-    tmp_path: str
-    stripped_tmp_path: str
+    gist_file_temp_path: str
+    gist_file_rstripped_temp_path: str
     diffs: Dict[Path, Difference]
     gist: ForwardRef('Gist')
     name: str
@@ -29,9 +30,9 @@ class GistFile:
         self.diffs = dict()
         self.name = name
         self.gist = gist
-        self.tmp_path = f'/tmp/{self.gist.id}__{name}'
+        self.gist_file_temp_path = f'/tmp/{self.gist.id}__{name}'
         stem, ext = os.path.splitext(name)
-        self.stripped_tmp_path = f'/tmp/{self.gist.id}__{stem}__stripped{ext}'
+        self.gist_file_rstripped_temp_path = f'/tmp/{self.gist.id}__{stem}__rstripped{ext}'
 
     def __repr__(self) -> str:
         rv = f"GistFile('{self.name}') {{ \n\tcontent: "
@@ -46,46 +47,60 @@ class GistFile:
 
     def diff(self, against: Path) -> NoReturn:
         """Checks whether the stripped contents of `against` and this file's content are different."""
-        # TODO: (bug) difference in 2 spaces vs 4 spaces vs tab count like 'content' diff
-        #  because it's rstrip and not regular strip
-        #  need to re.sub(r'\s\t',' ') and detect num of spaces
         # TODO (reuse files): write to ~/.cache/<SESSION>/ instead and check if exists before
-        logger.debug(f'Gist | {self.gist.short()} diffing "{against}"...')
+        logger.debug(f'Gist.diff() | {self.gist.short()} diffing "{against}"...')
 
-        # Save the content of this file to a tmp file
-        with open(self.tmp_path, mode='w') as tmp:
-            tmp.write(self.content)
+        write_file(self.gist_file_temp_path, self.content, overwrite_ok='r' not in config.cache.mode)
+        write_file(self.gist_file_rstripped_temp_path, self.stripped_content, overwrite_ok='r' not in config.cache.mode)
 
-        with open(self.stripped_tmp_path, mode='w') as tmp:
-            tmp.write(self.stripped_content)
+        try:
+            against_lines = against.open().read().splitlines()
+        except UnicodeDecodeError:
+            difference = self._diff_binary(against)
+        else:
+            difference = self._diff_text(against, against_lines)
 
-        # Strip the contents of the local file and save it to a tmp file
+        self.diffs[against] = difference
+
+    def _is_flat_format(self) -> bool:
+        return set(self.stripped_content.splitlines()) == set(filter(bool, self.content.splitlines()))
+
+    def _diff_binary(self, against: Path) -> Difference:
+        same_as_is = system.diff_quiet(f'"{self.gist_file_temp_path}" "{against}"')
+        return False if same_as_is else 'content'
+
+    def _diff_text(self, against: Path, against_lines: list[str]) -> Difference:
         stripped_against_path = f'/tmp/{against.stem}__stripped{against.suffix}'
-        against_lines = against.open().read().splitlines()  # readlines() returns a list each ending with linebreak
         stripped_against_lines = list(filter(bool, map(str.rstrip, against_lines)))
-        with open(stripped_against_path, mode='w') as tmp:
-            tmp.write('\n'.join(stripped_against_lines))
-
-        same_when_stripped: bool = system.diff_quiet(f'"{self.stripped_tmp_path}" "{stripped_against_path}"')
-        # different_stripped = system.run(f'diff --ignore-trailing-space --quiet --ignore-all-space --ignore-blank-lines -u --strip-trailing-cr --suppress-blank-empty "{self.stripped_tmp_path}" "{stripped_against_path}"')
-        same_as_is: bool = system.diff_quiet(f'"{self.tmp_path}" "{against}"')
-        # different_as_is = system.run(f'--ignore-trailing-space --quiet --ignore-all-space --ignore-blank-lines -u --strip-trailing-cr --suppress-blank-empty "{self.tmp_path}" "{against}"')
-        difference: Difference
+        if not os.path.exists(stripped_against_path):
+            with open(stripped_against_path, mode='w') as tmp:
+                tmp.write('\n'.join(stripped_against_lines))
+        same_when_stripped = system.diff_quiet(f'"{self.gist_file_rstripped_temp_path}" "{stripped_against_path}"')
+        same_as_is = system.diff_quiet(f'"{self.gist_file_temp_path}" "{against}"')
         if not same_when_stripped:
             difference = 'content'
         elif not same_as_is:
             difference = 'whitespace'
         else:
             difference = False
-        if difference and set(self.stripped_content.splitlines()) == set(filter(bool, self.content.splitlines())):
-            # This means file is flat, like .tmrignore. Check if local and gist still different when content is sorted
+        if difference and self._is_flat_format():
             against_set = set(filter(bool, against_lines))
             self_set = set(filter(bool, self.content.splitlines()))
             if against_set == self_set:
                 difference = 'order'
-        self.diffs[against] = difference
+        return typing.cast(Difference,difference)
 
 
+def write_file(file_path, content: str, *, overwrite_ok: bool) -> None:
+    if overwrite_ok:
+        with open(file_path, mode='w') as file:
+            file.write(content)
+        return
+    try:
+        with open(file_path, mode='x') as file:
+            file.write(content)
+    except FileExistsError:
+        return
 @dataclass
 class Gist:
     id: str
@@ -179,14 +194,14 @@ class Gist:
 # 	return self._content
 
 def get_gist_list() -> List[str]:
-    """Calls `gh gist list -L 100` to get the list of gists.
+    """Calls `gh gist list -L 1000` to get the list of gists.
     May use cache."""
 
     if 'r' in config.cache.mode and \
             config.cache.gist_list and \
             (gist_list := cache.gist_list) is not None:
         return gist_list
-    gist_list = system.run('gh gist list -L 100').splitlines()  # not safe
+    gist_list = system.run('gh gist list -L 1000').splitlines()  # not safe
     if 'w' in config.cache.mode and config.cache.gist_list:
         cache.gist_list = gist_list
     return gist_list
