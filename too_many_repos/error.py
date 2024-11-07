@@ -1,2 +1,2 @@
 class DoesThisHappen(BaseException):
-	pass
+    pass

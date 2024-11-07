@@ -1,51 +1,48 @@
-from collections.abc import Callable
 import os
 import sys
-from pathlib import Path
-from typing import Any, Optional, Literal, TypeVar, Union
 import typing
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any, Literal, Optional, TypeVar, Union
 
 from click import BadOptionUsage
+from rich.traceback import install as rich_traceback_install
 
+from too_many_repos import system
 from too_many_repos.log import logger
 from too_many_repos.singleton import Singleton
-from too_many_repos import system
 from too_many_repos.util import exec_file
-from rich.traceback import install as rich_traceback_install
 
 rich_traceback_install(extra_lines=5, show_locals=True, suppress=(".venv",))
 
-CacheMode = Optional[Literal['r', 'w', 'r+w', 'w+r', 'rw', 'wr']]
-Shell = Literal['zsh', 'bash']
-_O = TypeVar('_O')
+CacheMode = Optional[Literal["r", "w", "r+w", "w+r", "rw", "wr"]]
+Shell = Literal["zsh", "bash"]
+_O = TypeVar("_O")
 
 NoneType = type(None)
 UNSET = object()
-TYPE_VALUES = {
-    bool:     ('true', 'false', 'yes', 'no'),
-    NoneType: ('none', None)
-    }
+TYPE_VALUES = {bool: ("true", "false", "yes", "no"), NoneType: ("none", None)}
+
 
 def get_system_shell() -> Shell:
     try:
-        shell = os.environ['SHELL']
+        shell = os.environ["SHELL"]
     except KeyError:
         # If $SHELL is not set, try to determine the default shell
         if system.is_macos():
             # On macOS, the default shell is usually zsh
-            return 'zsh'
+            return "zsh"
         else:
             # On other Unix-like systems, the default shell is usually bash
-            return 'bash'
+            return "bash"
     else:
-        if 'zsh' in shell:
-            return 'zsh'
-        elif 'bash' in shell:
-            return 'bash'
+        if "zsh" in shell:
+            return "zsh"
+        elif "bash" in shell:
+            return "bash"
         else:
             # If the shell is not zsh or bash, return 'bash' as a fallback
-            return 'bash'
-
+            return "bash"
 
 
 def is_num(s: str) -> bool:
@@ -56,7 +53,9 @@ def is_num(s: str) -> bool:
         return False
 
 
-def is_of_type(val: Optional[str], type_: Union[NoneType, str, bool, float, int, None]) -> bool:
+def is_of_type(
+    val: Optional[str], type_: Union[NoneType, str, bool, float, int, None]
+) -> bool:
     """
     `val` can be either a string representation of `type_`, or None.
 
@@ -72,9 +71,9 @@ def is_of_type(val: Optional[str], type_: Union[NoneType, str, bool, float, int,
 
         if type_ is NoneType:
             # is_of_type("None", NoneType) → True
-            return val is None or val.lower() == 'none'
+            return val is None or val.lower() == "none"
 
-        if val is None or val.lower() == 'none':
+        if val is None or val.lower() == "none":
             return type_ is NoneType
 
         # At this point, val is a str
@@ -93,26 +92,30 @@ def is_of_type(val: Optional[str], type_: Union[NoneType, str, bool, float, int,
 
         if type_ is not str:
             # collections (tuple etc)
-            raise NotImplementedError(f"is_of_type(val = {repr(val)}, type = {repr(type_)})")
+            raise NotImplementedError(
+                f"is_of_type(val = {repr(val)}, type = {repr(type_)})"
+            )
 
-        return not is_num(val) and not any(val in othervalues for othervalues in TYPE_VALUES.values())
+        return not is_num(val) and not any(
+            val in othervalues for othervalues in TYPE_VALUES.values()
+        )
 
-    if not hasattr(type_, '__args__'):
+    if not hasattr(type_, "__args__"):
         # * type_ is a value / instance (e.g None, 'r', 5)
         if type_ is None:
             # is_of_type("None", None) → True
-            return val is None or val.lower() == 'none'
+            return val is None or val.lower() == "none"
 
-        if val is None or val.lower() == 'none':
+        if val is None or val.lower() == "none":
             return type_ is None
 
         # At this point, val is a str
         val = val.lower()
 
         if type_ is True:
-            return val in ('true', 'yes')
+            return val in ("true", "yes")
         elif type_ is False:
-            return val in ('false', 'no')
+            return val in ("false", "no")
 
         # e.g. '5' == str(5)
         return val == str(type_)
@@ -126,13 +129,13 @@ def is_of_type(val: Optional[str], type_: Union[NoneType, str, bool, float, int,
 
 def cast_type(val: Optional[str], type_: _O) -> _O:
     """Assumes `val` is of type `type_`"""
-    if hasattr(type_, '__args__'):
+    if hasattr(type_, "__args__"):
         # * type_ is a typing.<Foo>
         type_origin = typing.get_origin(type_)
         type_args = set(typing.get_args(type_))
         if type_origin is Union:
             if NoneType in type_args:
-                if val in (None, 'NONE', 'None', 'none'):
+                if val in (None, "NONE", "None", "none"):
                     return None
 
             type_args -= {NoneType}
@@ -142,7 +145,7 @@ def cast_type(val: Optional[str], type_: _O) -> _O:
             return cast_type(val, next(iter(type_args)))
         if val in type_args:
             return val
-        raise NotImplementedError(f'{val = } not in {type_args = }')
+        raise NotImplementedError(f"{val = } not in {type_args = }")
 
     if type_ in (NoneType, None):
         return None
@@ -151,7 +154,7 @@ def cast_type(val: Optional[str], type_: _O) -> _O:
             return True
         elif type_ in (False, Literal[False]):
             return False
-        return True if val in ('true', 'True', 'TRUE', 'yes', 'Yes', 'YES') else False
+        return True if val in ("true", "True", "TRUE", "yes", "Yes", "YES") else False
 
     if type_ in (int, float, str):
         return type_(val)
@@ -171,8 +174,10 @@ def pop_opt_from_sys_args(opt: str, type_: _O, *, check_short=False) -> _O:
     """
 
     val = None
-    if not opt.startswith('--'):
-        raise ValueError(f"pop_opt_from_sys_args({opt = !r}, ...) `opt` must start with '--'")
+    if not opt.startswith("--"):
+        raise ValueError(
+            f"pop_opt_from_sys_args({opt = !r}, ...) `opt` must start with '--'"
+        )
 
     shopt = opt[1:3] if check_short else None
     specified_opt = None  # For exceptions
@@ -189,9 +194,9 @@ def pop_opt_from_sys_args(opt: str, type_: _O, *, check_short=False) -> _O:
         # Handle 2 situations:
         # 1) --opt=foo
         # 2) --opt foo
-        if '=' in arg:
+        if "=" in arg:
             # e.g. --opt=foo
-            specified_opt, _, val = arg.partition('=')
+            specified_opt, _, val = arg.partition("=")
             sys.argv.pop(i)
             break
 
@@ -207,12 +212,22 @@ def pop_opt_from_sys_args(opt: str, type_: _O, *, check_short=False) -> _O:
                 # --opt is a flag
                 val = True
             else:
-                raise BadOptionUsage(opt, (f"{specified_opt} opt was specified without value. "
-                                           f"accepted values: {type_}")) from None
+                raise BadOptionUsage(
+                    opt,
+                    (
+                        f"{specified_opt} opt was specified without value. "
+                        f"accepted values: {type_}"
+                    ),
+                ) from None
 
     if not is_of_type(val, type_):
-        BadOptionUsage(opt, (f"{specified_opt} opt was specified with invalid value: {val!r}. "
-                             f"accepted values: {type_}"))
+        BadOptionUsage(
+            opt,
+            (
+                f"{specified_opt} opt was specified with invalid value: {val!r}. "
+                f"accepted values: {type_}"
+            ),
+        )
     cast = cast_type(val, type_)
     return cast
 
@@ -220,9 +235,11 @@ def pop_opt_from_sys_args(opt: str, type_: _O, *, check_short=False) -> _O:
 def verbose_setattr(obj, attr, val):
     self_value = getattr(obj, attr, UNSET)
     if self_value is not UNSET:
-        logger.warning(f"[b]{attr}[/b] was specified both in config and cmd args."
-                       f" config val ({repr(self_value)}) will be overwritten "
-                       f"by the value passed via cmdline: {repr(val)}")
+        logger.warning(
+            f"[b]{attr}[/b] was specified both in config and cmd args."
+            f" config val ({repr(self_value)}) will be overwritten "
+            f"by the value passed via cmdline: {repr(val)}"
+        )
     setattr(obj, attr, val)
 
 
@@ -236,6 +253,7 @@ class CacheConfig:
 
     If mode has both 'r' and 'w', cache is only written if none was read.
     """
+
     gist_list: Optional[bool] = None
     gist_filenames: Optional[bool] = None
     gist_content: Optional[bool] = None
@@ -243,17 +261,18 @@ class CacheConfig:
     _path: Path
 
     def __init__(self) -> None:
-        self.path = Path.home() / '.cache/too-many-repos'
-        _try_set_opt_from_sys_args(self, 'mode', '--cache-mode',
-                                   type_=CacheMode, default='')
+        self.path = Path.home() / ".cache/too-many-repos"
+        _try_set_opt_from_sys_args(
+            self, "mode", "--cache-mode", type_=CacheMode, default=""
+        )
 
     def __repr__(self):
         rv = f"CacheConfig(path={self.path!r}, mode={self.mode!r}, "
         for key, val in self.__dict__.items():
-            if key.startswith('_'):
+            if key.startswith("_"):
                 continue
-            rv += f'{key}={repr(val) if isinstance(val, str) else val}, '
-        return rv[:-2] + ')'
+            rv += f"{key}={repr(val) if isinstance(val, str) else val}, "
+        return rv[:-2] + ")"
 
     @property
     def path(self) -> Path:
@@ -306,44 +325,51 @@ class TmrConfig(Singleton):
         self.max_workers: Optional[int]
         self.max_depth: int
         self.gitdir_size_limit_mb: int
-        tmrrc = Path.home() / '.tmrrc.py'
+        tmrrc = Path.home() / ".tmrrc.py"
         exec_file(tmrrc, dict(config=self))
         # ** At this point, self.* attrs may have loaded values from file
-        self._handle_unknown_attributes(how='warn')
+        self._handle_unknown_attributes(how="warn")
 
         self._try_set_verbose_level_from_sys_args(default=0)
 
-        _try_set_opt_from_sys_args(self, 'gitdir_size_limit_mb', type_=Optional[int], default=100)
+        _try_set_opt_from_sys_args(
+            self, "gitdir_size_limit_mb", type_=Optional[int], default=100
+        )
 
-        _try_set_opt_from_sys_args(self, 'max_workers', type_=Optional[int], default=None)
+        _try_set_opt_from_sys_args(
+            self, "max_workers", type_=Optional[int], default=None
+        )
 
-        _try_set_opt_from_sys_args(self, 'max_depth', type_=Optional[int], default=1)
+        _try_set_opt_from_sys_args(self, "max_depth", type_=Optional[int], default=1)
 
-        _try_set_opt_from_sys_args(self, 'difftool', type_=Optional[str], default='diff')
+        _try_set_opt_from_sys_args(
+            self, "difftool", type_=Optional[str], default="diff"
+        )
 
-        _try_set_opt_from_sys_args(self, 'shell', type_=Optional[str], default=get_system_shell)
+        _try_set_opt_from_sys_args(
+            self, "shell", type_=Optional[str], default=get_system_shell
+        )
 
     def __repr__(self):
         rv = "TmrConfig()"
         for key, val in self.__dict__.items():
-            rv += f'\n    {key}: {repr(val) if isinstance(val, str) else val}'
+            rv += f"\n    {key}: {repr(val) if isinstance(val, str) else val}"
         return rv
 
-    def _handle_unknown_attributes(self, *, how: Literal['warn', 'raise']) -> None:
+    def _handle_unknown_attributes(self, *, how: Literal["warn", "raise"]) -> None:
         unknowns = set(self.__dict__.keys()) - set(self.__annotations__.keys())
         if not unknowns:
             return
         msg = f"TmrConfig got bad attributes: {', '.join(map(repr, unknowns))}"
-        if how == 'raise':
+        if how == "raise":
             raise AttributeError(msg)
         logger.warning(msg)
-
 
     @staticmethod
     def _get_verbose_level_from_sys_argv() -> Optional[int]:
         for i, arg in enumerate(sys.argv):
-            if arg in ('-v', '-vv', '-vvv'):
-                level = arg.count('v')
+            if arg in ("-v", "-vv", "-vvv"):
+                level = arg.count("v")
                 sys.argv.pop(i)
                 return level
 
@@ -351,10 +377,10 @@ class TmrConfig(Singleton):
             # 1) --verbose=2
             # 2) --verbose 2
             # 3) --verbose
-            if arg.startswith('--verbose'):
-                if '=' in arg:
+            if arg.startswith("--verbose"):
+                if "=" in arg:
                     # e.g. --verbose=2
-                    level = int(arg.partition('=')[2])
+                    level = int(arg.partition("=")[2])
                     sys.argv.pop(i)
                     return level
 
@@ -380,26 +406,29 @@ class TmrConfig(Singleton):
     def _try_set_verbose_level_from_sys_args(self, default=UNSET) -> None:
         level = TmrConfig._get_verbose_level_from_sys_argv()
         if level is None and default is not UNSET:
-            verbose_setattr(self, 'verbose', default)
+            verbose_setattr(self, "verbose", default)
         if level is not None:
-            verbose_setattr(self, 'verbose', level)
+            verbose_setattr(self, "verbose", level)
 
 
-def _try_set_opt_from_sys_args(obj, attr, optname=None, *, type_, default: Union[Any, Callable]=UNSET) -> None:
+def _try_set_opt_from_sys_args(
+    obj, attr, optname=None, *, type_, default: Union[Any, Callable] = UNSET
+) -> None:
     if not optname:
         optname = f'--{attr.replace("_", "-")}'
     val = pop_opt_from_sys_args(optname, type_)
     if val is not None:
-        return verbose_setattr(obj, attr.replace('-', '_'), val)
+        return verbose_setattr(obj, attr.replace("-", "_"), val)
 
     self_value = getattr(obj, attr, UNSET)
     if val is None and self_value is UNSET and default is not UNSET:
         if callable(default):
             default = default()
-        setattr(obj, attr.replace('-', '_'), default)
+        setattr(obj, attr.replace("-", "_"), default)
+
 
 config: TmrConfig
-if any(arg in ('-h', '--help') for arg in sys.argv[1:]):
+if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
     config = None
 else:
     config = TmrConfig()
