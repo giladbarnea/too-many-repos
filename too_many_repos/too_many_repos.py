@@ -15,7 +15,7 @@ from rich import print
 from rich.prompt import Confirm, Prompt
 
 from too_many_repos import system
-from too_many_repos.gist import Gist, GistFile, build_filename2gistfiles
+from too_many_repos.gist import Gist, GistFile, build_filename2gistfiles_parallel
 from too_many_repos.log import logger
 from too_many_repos.repo import Repo, is_repo
 from too_many_repos.tmrconfig import config
@@ -98,7 +98,7 @@ def diff_gist(entry: Path, gist: Gist, live, quiet):
             logger.info("[prompt]Would've prompted show diff, but quiet=True")
         else:
             live.stop()
-            if Confirm.ask("[prompt]show diff?[/]"):
+            if Confirm.ask("[prompt]Show diff?[/]"):
                 # don't echo here because shell syntax errors sometimes
                 # also don't add diff flags like above, and the overwrite is intentional
                 with open(tmp_stripped_gist_file_path, mode="w") as tmp:
@@ -137,6 +137,10 @@ def reduce_to_single_gist_by_filename(
 
 def get_direct_subdirs(path: Path) -> List[Path]:
     direct_subdirs = []
+    if tmrignore.is_ignored(path.absolute()):
+        if config.verbose >= 2:
+            logger.warning(f"Main | [b]{path}[/b]: skipping; excluded")
+        return direct_subdirs
     for subdir in filter(Path.is_dir, path.glob("*")):
         if tmrignore.is_ignored(subdir.absolute()):
             if (
@@ -156,9 +160,6 @@ def diff_recursively_with_gists(
 
     Called in a multiprocess context.
     """
-    # TODO (bug): when max_depth is > 1, even if foo/ is ignored, each if its subpaths are iterated.
-
-    # Even though is_ignored() is slow~, better to check before recursing down
     if tmrignore.is_ignored(path.absolute()):
         config.verbose >= 2 and logger.warning(
             f"Main | [b]{path}[/b]: skipping; excluded"
@@ -166,15 +167,9 @@ def diff_recursively_with_gists(
         return defaultdict(list)
     need_user: Dict[Path, List[GistFile]] = defaultdict(list)
     if safe_is_file(path):
-        # ignored subdirs are checked recursively
-        if tmrignore.is_ignored(path.absolute()):
-            config.verbose >= 3 and logger.warning(
-                f"Main | [b]{path}[/b]: skipping; excluded"
-            )
-            return defaultdict(list)
         file = path
         config.verbose >= 3 and logger.debug(
-            f"Main | checking if there a matching gist to {file}..."
+            f"Main | Checking if there a matching gist to {file}..."
         )
         gistfiles = filename2gistfiles.get(file.name)
         if not gistfiles:
@@ -184,8 +179,8 @@ def diff_recursively_with_gists(
             return defaultdict(list)
         gistfile = gistfiles[0]
         gistfile.diff(file)
-    if max_depth <= 0:
-        config.verbose >= 3 and logger.debug(f"Main | Reached {max_depth = } in {path}")
+    if max_depth == 0:
+        config.verbose >= 2 and logger.debug(f"Main | Reached {max_depth = } in {path}")
         return defaultdict(list)
     config.verbose >= 3 and logger.debug(
         f"Main | Looking for gists to diff inside {path}..."
@@ -198,7 +193,6 @@ def diff_recursively_with_gists(
             )
             if update:
                 need_user.update(update)
-            continue
     return need_user
 
 
@@ -224,7 +218,7 @@ def populate_repos_recursively(path: Path, repos: List[Repo], *, max_depth) -> N
             )
         else:
             repos.append(repo)
-    if max_depth <= 0:
+    if max_depth == 0:
         config.verbose >= 3 and logger.debug(f"Main | Reached {max_depth = } in {path}")
         return
     for subpath in safe_glob(path, "*"):
@@ -338,7 +332,7 @@ def main(
     # ** gists
     if should_check_gists:
         # * get gists
-        filename2gistfiles = build_filename2gistfiles()
+        filename2gistfiles = build_filename2gistfiles_parallel()
         logger.info(f"\nMain | Built {len(filename2gistfiles)} gists\n")
 
         # * populate gist.files
@@ -353,20 +347,30 @@ def main(
         max_workers: int = min(max_workers, 32)
         logger.info(f"\nMain | Diffing gists recursively in {max_workers} threads...")
         need_user: Dict[Path, List[GistFile]] = defaultdict(list)
+        futures: Dict[Path, fut.Future] = {}
         with fut.ThreadPoolExecutor(max_workers) as xtr:
             for subdir in direct_subdirs:
-                # TODO: .result() makes it serial?
-                res = xtr.submit(
+                future = xtr.submit(
                     diff_recursively_with_gists,
                     subdir,
                     filename2gistfiles,
                     max_depth=config.max_depth,
-                ).result()
-                logger.debug(f"Got {len(res)} paths that need user from {subdir}")
-                need_user.update(res)
-        res = diff_recursively_with_gists(parent_path, filename2gistfiles, max_depth=1)
-        logger.debug(f"Main | Got {len(res)} paths that need user from {parent_path}")
-        need_user.update(res)
+                )
+                futures[subdir] = future
+
+        for subdir, future in futures.items():
+            current_need_user = future.result()
+            current_need_user and logger.debug(
+                f"Got {len(current_need_user)} paths that need user from {subdir}"
+            )
+            need_user.update(current_need_user)
+        current_need_user = diff_recursively_with_gists(
+            parent_path, filename2gistfiles, max_depth=1
+        )
+        current_need_user and logger.debug(
+            f"Main | Got {len(current_need_user)} paths that need user from {parent_path}"
+        )
+        need_user.update(current_need_user)
         logger.debug(f"Main | In total, {len(need_user)} paths need user")
 
         for filename, gistfiles in filename2gistfiles.items():

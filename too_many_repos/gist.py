@@ -235,9 +235,9 @@ def get_gist_list() -> List[str]:
     return gist_list
 
 
-def build_filename2gistfiles() -> Dict[str, List[GistFile]]:
+def build_filename2gistfiles_parallel() -> Dict[str, List[GistFile]]:
     """
-    Maps the names of the GistFiles to their actual GistFiles.
+    Maps (using threads) the names of the GistFiles to their actual GistFiles.
     """
     logger.info("\nGist | Getting list of gists...")
     filename2gistfiles: Dict[str, List[GistFile]] = defaultdict(list)

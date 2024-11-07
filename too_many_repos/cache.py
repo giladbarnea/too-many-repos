@@ -26,7 +26,9 @@ class Cache(Singleton):
         if gist_list := self.__cache__.get("gist_list"):
             return gist_list
         gist_list = safe_load_pickle("gist_list")
-        logger.debug(f'Cache | gists list → {"None" if gist_list is None else "OK"}')
+        logger.debug(
+            f'Cache | Loaded gists list: {"None" if gist_list is None else "OK"}'
+        )
         self.__cache__["gist_list"] = gist_list
         return gist_list
 
@@ -44,7 +46,7 @@ class Cache(Singleton):
             return gist_filenames
         gist_filenames = safe_load_pickle(f"gist_{gist_id}_filenames")
         logger.debug(
-            f'Cache | Loaded cached filenames of {gist_id[:8]} → {"None" if gist_filenames is None else "OK"}'
+            f'Cache | Loaded cached filenames of {gist_id[:8]}: {"None" if gist_filenames is None else "OK"}'
         )
         cls.__cache__[f"gist_{gist_id}_filenames"] = gist_filenames
         return gist_filenames
@@ -63,7 +65,7 @@ class Cache(Singleton):
             return gist_file_content
         gist_file_content = safe_load_pickle(f"gist_{gist_id}_{file_name}")
         logger.debug(
-            f'Cache | Loaded cached file contents of [b]{file_name}[/b] of {gist_id[:8]} → {"None" if gist_file_content is None else "OK"}'
+            f'Cache | Loaded cached file contents of [b]{file_name}[/b] of {gist_id[:8]}: {"None" if gist_file_content is None else "OK"}'
         )
         cls.__cache__[f"gist_{gist_id}_{file_name}"] = gist_file_content
         return gist_file_content
