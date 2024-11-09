@@ -44,7 +44,7 @@ Example ``.tmrignore``::
 A file containing a config object with the following settable attributes:
 
 .. code-block:: python
-  
+
     config.verbose: int = 0
     config.max_workers: int = None
     config.max_depth: int = 1
@@ -52,9 +52,6 @@ A file containing a config object with the following settable attributes:
     config.gitdir_size_limit_mb: int = 100
     config.cache.mode: 'r' | 'w' | 'r+w' = None
     config.cache.path: str = '$HOME/.cache/too-many-repos'
-    config.cache.gist_list: bool = None
-    config.cache.gist_filenames: bool = None
-    config.cache.gist_content: bool = None
 
 Note that cmdline opts have priority over settings in ``.tmrrc.py`` in case both are specified.
 

@@ -1,3 +1,4 @@
+import inspect
 import os
 import sys
 import typing
@@ -245,19 +246,16 @@ def verbose_setattr(obj, attr, val):
 
 class CacheConfig:
     """
-    Mode dictates what to do with individual settings.
-    If unspecified (default), cache is completely disabled.
-
-    If mode is specified ('r', 'w' or 'r+w'), individual settings that were
-    unspecified (default) are set to True.
-
-    If mode has both 'r' and 'w', cache is only written if none was read.
+    `mode` dictates whether and in what manner cache is utilized.
+    Controlled by `--cache-mode` cli option, or `cache.mode` in .tmrrc.py.
+    If unspecified (default), cache is disabled.
+    Valid values:
+    - 'r': disk cache is only read if it exists. Nothing new is written to disk.
+    - 'w': cache is always written to disk, ignoring and overwriting any existing disk cache.
+    - 'r+w': disk cache is read if it exists, and new values are written to disk.
     """
 
-    gist_list: Optional[bool] = None
-    gist_filenames: Optional[bool] = None
-    gist_content: Optional[bool] = None
-    _mode: CacheMode
+    mode: CacheMode
     _path: Path
 
     def __init__(self) -> None:
@@ -268,7 +266,12 @@ class CacheConfig:
 
     def __repr__(self):
         rv = f"CacheConfig(path={self.path!r}, mode={self.mode!r}, "
-        for key, val in self.__dict__.items():
+        attributes = {
+            k: v
+            for k, v in dict(inspect.getmembers(self)).items()
+            if not k.startswith("_")
+        }
+        for key, val in attributes.items():
             if key.startswith("_"):
                 continue
             rv += f"{key}={repr(val) if isinstance(val, str) else val}, "
@@ -283,25 +286,6 @@ class CacheConfig:
         self._path = Path(path)
         if not self._path.is_dir():
             self._path.mkdir(parents=True)
-
-    @property
-    def mode(self) -> CacheMode:
-        return self._mode
-
-    @mode.setter
-    def mode(self, mode: CacheMode) -> None:
-        self._mode = mode
-        if self._mode:
-            if self.gist_list is None:
-                self.gist_list = True
-            if self.gist_filenames is None:
-                self.gist_filenames = True
-            if self.gist_content is None:
-                self.gist_content = True
-        else:
-            self.gist_list = None
-            self.gist_filenames = None
-            self.gist_content = None
 
 
 class TmrConfig(Singleton):
@@ -352,7 +336,12 @@ class TmrConfig(Singleton):
 
     def __repr__(self):
         rv = "TmrConfig()"
-        for key, val in self.__dict__.items():
+        attributes = {
+            k: v
+            for k, v in dict(inspect.getmembers(self)).items()
+            if not k.startswith("_")
+        }
+        for key, val in attributes.items():
             rv += f"\n    {key}: {repr(val) if isinstance(val, str) else val}"
         return rv
 

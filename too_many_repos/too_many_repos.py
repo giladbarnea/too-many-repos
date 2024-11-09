@@ -4,8 +4,6 @@ import re
 import sys
 from collections import defaultdict
 from concurrent import futures as fut
-from datetime import datetime as dt
-from datetime import timedelta
 from multiprocessing import Pool as ProcPool
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -14,198 +12,121 @@ import click
 from rich import print
 from rich.prompt import Confirm, Prompt
 
-from too_many_repos import system
-from too_many_repos.gist import Gist, GistFile, build_filename2gistfiles_parallel
+import too_many_repos.gist as gist
 from too_many_repos.log import logger
 from too_many_repos.repo import Repo, is_repo
 from too_many_repos.tmrconfig import config
 from too_many_repos.tmrignore import tmrignore
 from too_many_repos.util import safe_glob, safe_is_dir, safe_is_file, unrequired_opt
 
-THIS_FILE_STEM = Path(__file__).stem
 
 
-# noinspection PyUnresolvedReferences,PyTypeChecker
-def diff_gist(entry: Path, gist: Gist, live, quiet):
-    logger.debug(f"diffing {entry}...")
-    tmp_stripped_gist_file_path = f"/tmp/{gist.id}"
-    # gist_content = system.run(f"gh gist view '{gist.id}'", verbose=config.verbose).splitlines()
-    # gist_description = id2props[gist.id].get('description', '')
-
-    # stripped_gist_content = list(filter(bool, map(str.strip, gist.content)))
-    # if gist.description:
-    #     try:
-    #         index_of_gist_description = next(i for i, line in enumerate(stripped_gist_content) if line.strip().startswith(gist.description))
-    #     except StopIteration:
-    #         pass
-    #     else:
-    #
-    #         stripped_gist_content.pop(index_of_gist_description)
-    #         stripped_gist_content = list(filter(bool, map(str.strip, stripped_gist_content)))
-    with open(tmp_stripped_gist_file_path, mode="w") as tmp:
-        tmp.write(gist.content)
-
-    entry_lines = list(
-        filter(bool, map(str.strip, entry.absolute().open().readlines()))
-    )
-    tmp_stripped_file_path = f"/tmp/{entry.name}.gist{entry.suffix}"
-    with open(tmp_stripped_file_path, mode="w") as tmp:
-        tmp.write("\n".join(entry_lines))
-    # if '.git_status_subdirs_ignore' in str(entry):
-    #     live.stop()
-    same = system.diff_quiet(
-        f'"{tmp_stripped_gist_file_path}" "{tmp_stripped_file_path}"'
-    )
-    if not same:
-        # gist_date = id2props[gist_id].get('date')
-        prompt = f"[b]{entry.absolute()}[/b]: file and gist {gist.id} ('{gist.description[:32]}') are different"
-        try:
-            # noinspection PyUnresolvedReferences
-            from dateutil.parser import parse as parsedate
-        except ModuleNotFoundError:
-            pass
-        else:
-            if gist.date.endswith("Z"):
-                gist.date = parsedate(gist.date[:-1])
-            else:
-                gist.date = parsedate(gist.date)
-
-            file_mdate = dt.fromtimestamp(entry.stat().st_mtime)
-            if file_mdate > gist.date:
-                local_is_newer = True
-                td: timedelta = file_mdate - gist.date
-            else:
-                local_is_newer = False
-                td: timedelta = gist.date - file_mdate
-
-            if td.seconds > 5:
-                if td.days:
-                    time_diff = f"{td.days} days"
-                elif td.seconds >= 3600:
-                    time_diff = f"{td.seconds // 3600} hours and {(td.seconds % 3600) // 60} minutes"
-                elif td.seconds >= 60:
-                    time_diff = (
-                        f"{(td.seconds % 3600) // 60} minutes and {td.seconds} seconds"
-                    )
-                else:
-                    time_diff = f"{td.seconds} seconds"
-
-                prompt += f"; [b]{'local' if local_is_newer else 'gist'}[/b] is newer by {time_diff}"
-            else:
-                prompt += "(less than 5 seconds apart)"
-        logger.info(prompt)
-        if quiet:
-            logger.info("[prompt]Would've prompted show diff, but quiet=True")
-        else:
-            live.stop()
-            if Confirm.ask("[prompt]Show diff?[/]"):
-                # don't echo here because shell syntax errors sometimes
-                # also don't add diff flags like above, and the overwrite is intentional
-                with open(tmp_stripped_gist_file_path, mode="w") as tmp:
-                    tmp.write(gist.content)
-                # os.system(f'diff -ZuB --strip-trailing-cr "{tmp_stripped_gist_file_path}" "{entry.absolute()}" | delta')
-                # os.system(f'diff --ignore-trailing-space -u --quiet --strip-trailing-cr "{tmp_stripped_gist_file_path}" "{entry.absolute()}" | delta')
-                system.diff_interactive(
-                    f'"{tmp_stripped_gist_file_path}" "{entry.absolute()}" | delta'
-                )
-
-            live.start()
-    else:
-        logger.good(
-            f"[b]{entry.absolute()}[/b]: file and gist {gist.id[:16]} ('{gist.description[:32]}') file are identical"
-        )
-
-
-def reduce_to_single_gist_by_filename(
-    file: Path, matching_gists: List[Gist]
-) -> Optional[Gist]:
+def ask_user_which_gist_file_belongs_to(
+    file: Path, matching_gists: List[gist.Gist]
+) -> Optional[gist.Gist]:
     if len(matching_gists) == 1:
-        gist = matching_gists[0]
+        matching_gist = matching_gists[0]
     else:
         prompt = f"[i]{file.absolute()}[/i] | What gist?\n"
-        for i, gist in enumerate(matching_gists, start=1):
-            prompt += f"{i}] {gist}\n"
+        for i, matching_gist in enumerate(matching_gists, start=1):
+            prompt += f"{i}] {matching_gist}\n"
         prompt += "s] skip\n"
         answer = Prompt.ask(
             prompt, choices=list(map(str, range(1, len(matching_gists) + 1))) + ["s"]
         )
         if answer == "s":
             return None
-        gist = matching_gists[int(answer) - 1]
-    return gist
+        matching_gist = matching_gists[int(answer) - 1]
+    return matching_gist
 
 
 def get_direct_subdirs(path: Path) -> List[Path]:
     direct_subdirs = []
     if tmrignore.is_ignored(path.absolute()):
         if config.verbose >= 2:
-            logger.warning(f"Main | [b]{path}[/b]: skipping; excluded")
+            logger.warning(
+                f"Main.get_direct_subdirs() | [b]{path}[/b]: skipping; excluded"
+            )
         return direct_subdirs
     for subdir in filter(Path.is_dir, path.glob("*")):
         if tmrignore.is_ignored(subdir.absolute()):
             if (
                 config.verbose >= 2
             ):  # keep >=2 because prints for all subdirs of excluded
-                logger.warning(f"Main | [b]{subdir}[/b]: skipping; excluded")
+                logger.warning(
+                    f"Main.get_direct_subdirs() | [b]{subdir}[/b]: skipping; excluded"
+                )
             continue
         direct_subdirs.append(subdir)
     return direct_subdirs
 
 
 def diff_recursively_with_gists(
-    path: Path, filename2gistfiles: Dict[str, List[GistFile]], *, max_depth
-) -> Dict[Path, List[GistFile]]:
+    path: Path, file_name_to_gist_files: Dict[str, List[gist.GistFile]], *, max_depth
+) -> Dict[Path, List[gist.GistFile]]:
     """
     Goes over files inside path and diffs them against any matching gist.
 
-    Called in a multiprocess context.
+    Called in a multithreaded context.
     """
     if tmrignore.is_ignored(path.absolute()):
         config.verbose >= 2 and logger.warning(
-            f"Main | [b]{path}[/b]: skipping; excluded"
+            f"Main.diff_recursively_with_gists() | [b]{path}[/b]: skipping; excluded"
         )
         return defaultdict(list)
-    need_user: Dict[Path, List[GistFile]] = defaultdict(list)
+
+    need_user_disambiguation: Dict[Path, List[gist.GistFile]] = defaultdict(list)
+
+    # File case
     if safe_is_file(path):
         file = path
         config.verbose >= 3 and logger.debug(
-            f"Main | Checking if there a matching gist to {file}..."
+            f"Main.diff_recursively_with_gists() | Checking if there a matching gist to {file}..."
         )
-        gistfiles = filename2gistfiles.get(file.name)
-        if not gistfiles:
+        gist_files = file_name_to_gist_files.get(file.name)
+        if not gist_files:
             return defaultdict(list)
-        if len(gistfiles) > 1:
-            need_user[file].extend(gistfiles)
-            return defaultdict(list)
-        gistfile = gistfiles[0]
-        gistfile.diff(file)
-    if max_depth == 0:
-        config.verbose >= 2 and logger.debug(f"Main | Reached {max_depth = } in {path}")
+        if len(gist_files) > 1:
+            need_user_disambiguation[file].extend(gist_files)
+            return need_user_disambiguation
+        gist_file = gist_files[0]
+        gist_file.diff(file)
         return defaultdict(list)
+
+    # Directory case
+    if max_depth == 0:
+        config.verbose >= 3 and logger.debug(
+            f"Main.diff_recursively_with_gists() | Reached {max_depth = } in {path}"
+        )
+        return defaultdict(list)
+
     config.verbose >= 3 and logger.debug(
-        f"Main | Looking for gists to diff inside {path}..."
+        f"Main.diff_recursively_with_gists() | Looking for gists to diff inside {path}..."
     )
 
     if safe_is_dir(path):
         for subpath in path.glob("*"):
             update = diff_recursively_with_gists(
-                subpath, filename2gistfiles, max_depth=max_depth - 1
+                subpath, file_name_to_gist_files, max_depth=max_depth - 1
             )
-            if update:
-                need_user.update(update)
-    return need_user
+            need_user_disambiguation.update(update)
+    return need_user_disambiguation
 
 
 def populate_repos_recursively(path: Path, repos: List[Repo], *, max_depth) -> None:
-    config.verbose >= 3 and logger.debug(f"Main | Populating repos inside {path}...")
+    config.verbose >= 3 and logger.debug(
+        f"Main.populate_repos_recursively() | Populating repos inside {path}..."
+    )
 
     if safe_is_file(path):
-        config.verbose >= 3 and logger.debug(f"Main | {path} is a file")
+        config.verbose >= 3 and logger.debug(
+            f"Main.populate_repos_recursively() | {path} is a file. Returning None."
+        )
         return
 
     if tmrignore.is_ignored(path.absolute()):
         config.verbose >= 2 and logger.warning(
-            f"Main | [b]{path}[/b]: skipping; excluded"
+            f"Main.populate_repos_recursively() | [b]{path}[/b]: skipping; excluded"
         )
         return
 
@@ -214,12 +135,14 @@ def populate_repos_recursively(path: Path, repos: List[Repo], *, max_depth) -> N
 
         if repo.is_gitdir_too_big():
             logger.warning(
-                f"Main | [b]{repo.path}[/b]: skipping; .git dir size is above {config.gitdir_size_limit_mb}MB"
+                f"Main.populate_repos_recursively() | [b]{repo.path}[/b]: skipping; .git dir size is above {config.gitdir_size_limit_mb}MB"
             )
         else:
             repos.append(repo)
     if max_depth == 0:
-        config.verbose >= 3 and logger.debug(f"Main | Reached {max_depth = } in {path}")
+        config.verbose >= 3 and logger.debug(
+            f"Main.populate_repos_recursively() | Reached {max_depth = } in {path}"
+        )
         return
     for subpath in safe_glob(path, "*"):
         populate_repos_recursively(subpath, repos, max_depth=max_depth - 1)
@@ -332,8 +255,8 @@ def main(
     # ** gists
     if should_check_gists:
         # * get gists
-        filename2gistfiles = build_filename2gistfiles_parallel()
-        logger.info(f"\nMain | Built {len(filename2gistfiles)} gists\n")
+        file_name_to_gist_files = gist.build_file_name_to_gist_files_parallel()
+        logger.info(f"\nMain.main() | Built {len(file_name_to_gist_files)} gists\n")
 
         # * populate gist.files
         direct_subdirs = get_direct_subdirs(parent_path)
@@ -345,15 +268,17 @@ def main(
             or 1
         )
         max_workers: int = min(max_workers, 32)
-        logger.info(f"\nMain | Diffing gists recursively in {max_workers} threads...")
-        need_user: Dict[Path, List[GistFile]] = defaultdict(list)
+        logger.info(
+            f"\nMain.main() | Diffing gists recursively in {max_workers} threads..."
+        )
+        need_user_disambiguation: Dict[Path, List[gist.GistFile]] = defaultdict(list)
         futures: Dict[Path, fut.Future] = {}
         with fut.ThreadPoolExecutor(max_workers) as xtr:
             for subdir in direct_subdirs:
                 future = xtr.submit(
                     diff_recursively_with_gists,
                     subdir,
-                    filename2gistfiles,
+                    file_name_to_gist_files,
                     max_depth=config.max_depth,
                 )
                 futures[subdir] = future
@@ -361,19 +286,21 @@ def main(
         for subdir, future in futures.items():
             current_need_user = future.result()
             current_need_user and logger.debug(
-                f"Got {len(current_need_user)} paths that need user from {subdir}"
+                f"Got {len(current_need_user)} paths that need user to disambiguate from {subdir}"
             )
-            need_user.update(current_need_user)
+            need_user_disambiguation.update(current_need_user)
         current_need_user = diff_recursively_with_gists(
-            parent_path, filename2gistfiles, max_depth=1
+            parent_path, file_name_to_gist_files, max_depth=1
         )
         current_need_user and logger.debug(
-            f"Main | Got {len(current_need_user)} paths that need user from {parent_path}"
+            f"Main.main() | Got {len(current_need_user)} paths that need user to disambiguate from {parent_path}"
         )
-        need_user.update(current_need_user)
-        logger.debug(f"Main | In total, {len(need_user)} paths need user")
+        need_user_disambiguation.update(current_need_user)
+        logger.debug(
+            f"Main.main() | In total, {len(need_user_disambiguation)} paths need user to disambiguate"
+        )
 
-        for filename, gistfiles in filename2gistfiles.items():
+        for filename, gistfiles in file_name_to_gist_files.items():
             for gistfile in gistfiles:
                 for path, difference in gistfile.diffs.items():
                     if difference:
@@ -385,7 +312,7 @@ def main(
                             difftool, *difftool_args = config.difftool.split()
                             if re.match(r"^(meld|code|pycharm)", config.difftool):
                                 os.system(
-                                    f'nohup "{difftool}" {" ".join(difftool_args)} "{path}" "{gistfile.gist_file_temp_path}" 2>1 1>/dev/null &'
+                                    f'nohup "{difftool}" {" ".join(difftool_args)} "{path}" "{gistfile.gist_file_temp_path}" 1>/dev/null 2>&1 &'
                                 )
                             else:
                                 os.system(
@@ -396,7 +323,7 @@ def main(
                             f"[b]Diff '{path.absolute()}'[/b] and [b]{gistfile.gist.short()}[/b] are [b green]identical[/]"
                         )
 
-    # if need_user:
+    # if need_user_disambiguation:
     # 	breakpoint()
 
     # ** repos
@@ -414,16 +341,18 @@ def main(
     max_workers = min((repos_len := len(repos)), config.max_workers or repos_len)
     max_workers: int = min(max_workers, 32)
     if not no_fetch:
-        logger.info(f"Main | Fetching {len(repos)} repos in {max_workers} processes...")
+        logger.info(
+            f"Main.main() | Fetching {len(repos)} repos in {max_workers} processes..."
+        )
         with ProcPool(max_workers) as pool:
             pool.map(Repo.fetch, repos)
 
     # * status
-    logger.info(f"Main | Git status {len(repos)} repos serially...")
+    logger.info(f"Main.main() | Git status {len(repos)} repos serially...")
     for repo in repos:
         repo.popuplate_status()
 
-    logger.info("Main | Done fetching and git statusing")
+    logger.info("Main.main() | Done fetching and git statusing")
 
     for repo in repos:
         has_local_modified_files = not repo.status.endswith(
@@ -532,7 +461,7 @@ def usage(ctx, parent_path: Path):
     code = (
         lambda x: f"[rgb(180,180,180) on rgb(30,30,30)]{x}[/rgb(180,180,180) on rgb(30,30,30)]"
     )
-    kw = lambda x: f"[i rgb(180,180,180)]{x}[/i rgb(180,180,180)]"
+    kw = lambda x: f"[rgb(180,180,180)]{x}[/rgb(180,180,180)]"
     arg = lambda x: f"[rgb(180,180,180)]{x}[/rgb(180,180,180)]"
     d = lambda x: f"[dim]{x}[/dim]"
     ta = lambda x: f"[dim i]{x}[/dim i]"
@@ -546,7 +475,7 @@ def usage(ctx, parent_path: Path):
             "  --max-workers LIMIT: INT\t  Limit threads and processes [default: None]",
             "  --max-depth DEPTH: INT\t  [default: 1]",
             '  --difftool PATH: STR\t\t  [default: "diff"]',
-            "  --gitdir-size-limit SIZE_MB: INT\t A dir is skipped if its .git dir size >= SIZE_MB [default: 100]",
+            "  --gitdir-size-limit-mb SIZE_MB: INT\t A dir is skipped if its .git dir size >= SIZE_MB [default: 100]",
             "",
             h1(".tmrignore and .tmrrc.py files"),
             *"\n  ".join(
@@ -575,9 +504,6 @@ def usage(ctx, parent_path: Path):
                     "`config.gitdir_size_limit_mb`: int = 100",
                     "`config.cache.mode`: 'r' | 'w' | 'r+w' = None",
                     f"`config.cache.path`: str = '{Path.home()}/.cache/too-many-repos'",
-                    "`config.cache.gist_list`: bool = None",
-                    "`config.cache.gist_filenames`: bool = None",
-                    "`config.cache.gist_content`: bool = None\n",
                     "Note that cmdline opts have priority over settings in .tmrrc.py in case both are specified.",
                 ]
             ).splitlines(),

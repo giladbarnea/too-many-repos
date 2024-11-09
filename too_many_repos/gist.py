@@ -1,10 +1,9 @@
-import os
 import typing
 from collections import defaultdict
 from concurrent import futures as fut
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, ForwardRef, List, Literal, NoReturn
+from typing import Any, Dict, ForwardRef, List, Literal
 
 from too_many_repos import system
 from too_many_repos.cache import cache
@@ -17,27 +16,23 @@ Difference = Literal["whitespace", "content", "order", False]
 
 class GistFile:
     content: str
-    stripped_content: str
-    gist_file_temp_path: str
-    gist_file_rstripped_temp_path: str
+    rstripped_content: str
     diffs: Dict[Path, Difference]
     gist: ForwardRef("Gist")
-    name: str
+    file_name: str
 
     def __init__(self, name: str, gist: ForwardRef("Gist")):
         self.content: str = ""
-        self.stripped_content: str = ""
+        self.rstripped_content: str = ""
         self.diffs = dict()
-        self.name = name
+        self.file_name = name
         self.gist = gist
-        self.gist_file_temp_path = f"/tmp/{self.gist.id}__{name}"
-        stem, ext = os.path.splitext(name)
-        self.gist_file_rstripped_temp_path = (
-            f"/tmp/{self.gist.id}__{stem}__rstripped{ext}"
-        )
+        self.gist_temp_base_path = Path(f"/tmp/{self.gist.id}")
+        self.gist_temp_base_path.mkdir(exist_ok=True, parents=True)
+        self.gist_file_temp_path = self.gist_temp_base_path / self.file_name
 
     def __repr__(self) -> str:
-        rv = f"GistFile('{self.name}') {{ \n\tcontent: "
+        rv = f"GistFile('{self.file_name}') {{ \n\tcontent: "
         if self.content:
             rv += rf'"{self.content[:16]}..."'
         else:
@@ -47,21 +42,10 @@ class GistFile:
         rv += f"\n\tdiffs: {self.diffs} }}"
         return rv
 
-    def diff(self, against: Path) -> NoReturn:
-        """Checks whether the stripped contents of `against` and this file's content are different."""
+    def diff(self, against: Path) -> None:
+        """Populates self.diffs[against] with the `Difference` between self and given file; either 'whitespace', 'content', 'order', or False."""
         # TODO (reuse files): write to ~/.cache/<SESSION>/ instead and check if exists before
-        logger.debug(f'Gist.diff() | {self.gist.short()} diffing "{against}"...')
-
-        write_file(
-            self.gist_file_temp_path,
-            self.content,
-            overwrite_ok="r" not in config.cache.mode,
-        )
-        write_file(
-            self.gist_file_rstripped_temp_path,
-            self.stripped_content,
-            overwrite_ok="r" not in config.cache.mode,
-        )
+        logger.debug(f'GistFile.diff() | {self.gist.short()} diffing "{against}"...')
 
         try:
             against_lines = against.open().read().splitlines()
@@ -70,51 +54,64 @@ class GistFile:
         else:
             difference = self._diff_text(against, against_lines)
 
+        config.verbose >= 2 and difference and logger.debug(
+            f'GistFile.diff() | {self.gist.short()} and "{against}" are different in {difference!r}'
+        )
         self.diffs[against] = difference
 
     def _is_flat_format(self) -> bool:
-        return set(self.stripped_content.splitlines()) == set(
-            filter(bool, self.content.splitlines())
+        return all(
+            line == line.lstrip() for line in filter(bool, self.content.splitlines())
         )
 
     def _diff_binary(self, against: Path) -> Difference:
+        write_file(
+            self.gist_file_temp_path,
+            self.content,
+            overwrite_ok=False,
+        )
         same_as_is = system.diff_quiet(f'"{self.gist_file_temp_path}" "{against}"')
         return False if same_as_is else "content"
 
     def _diff_text(self, against: Path, against_lines: list[str]) -> Difference:
-        stripped_against_path = f"/tmp/{against.stem}__stripped{against.suffix}"
-        stripped_against_lines = list(filter(bool, map(str.rstrip, against_lines)))
-        if not os.path.exists(stripped_against_path):
-            with open(stripped_against_path, mode="w") as tmp:
-                tmp.write("\n".join(stripped_against_lines))
-        same_when_stripped = system.diff_quiet(
-            f'"{self.gist_file_rstripped_temp_path}" "{stripped_against_path}"'
+        against_lines_rstripped = list(filter(bool, map(str.rstrip, against_lines)))
+        same_when_rstripped: bool = (
+            against_lines_rstripped == self.rstripped_content.splitlines()
         )
-        same_as_is = system.diff_quiet(f'"{self.gist_file_temp_path}" "{against}"')
-        if not same_when_stripped:
+        if not same_when_rstripped:
             difference = "content"
-        elif not same_as_is:
+        elif not (
+            against_lines == self.content.splitlines()
+            # elif not same as-is:
+        ):
             difference = "whitespace"
         else:
             difference = False
         if difference and self._is_flat_format():
-            against_set = set(filter(bool, against_lines))
-            self_set = set(filter(bool, self.content.splitlines()))
+            against_set = set(filter(bool, against_lines_rstripped))
+            self_set = set(filter(bool, self.rstripped_content.splitlines()))
             if against_set == self_set:
                 difference = "order"
+        if difference:
+            write_file(
+                self.gist_file_temp_path,
+                self.content,
+                overwrite_ok=False,
+            )
         return typing.cast(Difference, difference)
 
 
-def write_file(file_path, content: str, *, overwrite_ok: bool) -> None:
+def write_file(file_path, content: str, *, overwrite_ok: bool) -> bool:
     if overwrite_ok:
         with open(file_path, mode="w") as file:
             file.write(content)
-        return
+        return True
     try:
         with open(file_path, mode="x") as file:
             file.write(content)
+        return True
     except FileExistsError:
-        return
+        return False
 
 
 @dataclass
@@ -141,12 +138,11 @@ class Gist:
         May use cache."""
         if (
             "r" in config.cache.mode
-            and config.cache.gist_filenames
             and (filenames := cache.get_gist_filenames(self.id)) is not None
         ):
             return filenames
         filenames = system.run(f'gh gist view "{self.id}" --files').splitlines()
-        if "w" in config.cache.mode and config.cache.gist_filenames:
+        if "w" in config.cache.mode:
             cache.set_gist_filenames(self.id, filenames)
         return filenames
 
@@ -155,17 +151,16 @@ class Gist:
         May use cache."""
         if (
             "r" in config.cache.mode
-            and config.cache.gist_content
             and (file_content := cache.get_gist_file_content(self.id, file_name))
             is not None
         ):
             return file_content
         content = system.run(f"gh gist view '{self.id}' -f '{file_name}'")
-        if "w" in config.cache.mode and config.cache.gist_content:
+        if "w" in config.cache.mode:
             cache.set_gist_file_content(self.id, file_name, content)
         return content
 
-    def build_self_files(self, *, skip_ignored: bool) -> NoReturn:
+    def build_self_files(self, *, skip_ignored: bool) -> None:
         """
         Popuplates self.files.
 
@@ -183,59 +178,38 @@ class Gist:
             self.files[name] = file
         logger.debug(f"Gist | [b]{self.short()}[/b] built {len(self.files)} files")
 
-    def popuplate_files_content(self) -> NoReturn:
+    def popuplate_files_content(self) -> None:
         """
-        For each file in self.files, sets its content.
+        For each gist_file in self.files, sets its content.
 
         Calls self._get_file_content(self, file_name) which may use cache.
 
         Called by build_filename2gistfiles() in a threaded context.
         """
-        for name, file in self.files.items():
+        for name, gist_file in self.files.items():
             content = self._get_file_content(name)
-            file.content = content
-            file.stripped_content = "\n".join(
+            gist_file.content = content
+            gist_file.rstripped_content = "\n".join(
                 filter(bool, map(str.rstrip, content.splitlines()))
             )
         logger.debug(f"Gist | [b]{self.short()}[/b] populated files content")
 
 
-# @property
-# def content(self) -> str:
-# 	# TODO: this doesnt work when multiple files!
-# 	if self._content is not None:
-# 		return self._content
-# 	stripped_content = system.run(f"gh gist view '{self.id}'", verbose=config.verbose).splitlines()
-# 	if self.description:
-# 		try:
-# 			index_of_description = next(i for i, line in enumerate(stripped_content) if line.strip().startswith(self.description))
-# 		except StopIteration:
-# 			pass
-# 		else:
-# 			stripped_content.pop(index_of_description)
-# 			stripped_content = "\n".join(list(filter(bool, map(str.strip, stripped_content))))
-# 		finally:
-# 			self._content = stripped_content
-# 	return self._content
 
 
 def get_gist_list() -> List[str]:
     """Calls `gh gist list -L 1000` to get the list of gists.
     May use cache."""
 
-    if (
-        "r" in config.cache.mode
-        and config.cache.gist_list
-        and (gist_list := cache.gist_list) is not None
-    ):
+    if "r" in config.cache.mode and (gist_list := cache.gist_list) is not None:
         return gist_list
     gist_list = system.run("gh gist list -L 1000").splitlines()  # not safe
-    if "w" in config.cache.mode and config.cache.gist_list:
+    if "w" in config.cache.mode:
         cache.gist_list = gist_list
     return gist_list
 
 
-def build_filename2gistfiles_parallel() -> Dict[str, List[GistFile]]:
+def build_file_name_to_gist_files_parallel() -> Dict[str, List[GistFile]]:
     """
     Maps (using threads) the names of the GistFiles to their actual GistFiles.
     """

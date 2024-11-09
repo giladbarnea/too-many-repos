@@ -3,7 +3,7 @@ import subprocess as sp
 from collections import namedtuple
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Generator, NoReturn
+from typing import Any, Generator
 
 from too_many_repos import system
 from too_many_repos.log import logger
@@ -51,7 +51,7 @@ class Repo:
     def __repr__(self) -> str:
         return f"Repo({self.path})"
 
-    def fetch(self) -> NoReturn:
+    def fetch(self) -> None:
         with visit_dir(self.path):
             config.verbose >= 2 and logger.debug(f"git fetch in {self.path}...")
             system.run(
@@ -60,20 +60,15 @@ class Repo:
                 stderr=sp.DEVNULL,
             )
 
-    def popuplate_status(self) -> NoReturn:
+    def popuplate_status(self) -> None:
         with visit_dir(self.path):
             config.verbose >= 2 and logger.debug(f"git status in {self.path}...")
             status = system.run("git status")
         self.status = status
 
     def is_gitdir_too_big(self) -> bool:  # Slow (10ms~100ms)
-        gitdir_size = 0
         gitdir_size_limit_byte = config.gitdir_size_limit_mb * 1_000_000
-        for entry in self.gitdir.glob("**/*"):
-            gitdir_size += entry.stat().st_size
-            if gitdir_size >= gitdir_size_limit_byte:
-                return True
-        return False
+        return _dir_is_bigger_than(self.gitdir, gitdir_size_limit_byte)
 
     def get_remotes(self) -> Remotes:
         """origin, upstream, tracking"""
@@ -89,3 +84,19 @@ class Repo:
         )
         current_branch = run("git rev-parse --abbrev-ref HEAD", stderr=sp.DEVNULL)
         return Remotes(origin, upstream, tracking, current_branch)
+
+
+def _dir_is_bigger_than(path: os.PathLike, size_bytes: int) -> bool:
+    total = 0
+    with os.scandir(path) as it:
+        for entry in it:
+            try:
+                if entry.is_file(follow_symlinks=False):
+                    total += entry.stat(follow_symlinks=False).st_size
+                elif entry.is_dir(follow_symlinks=False):
+                    total += _dir_is_bigger_than(entry.path, size_bytes)
+                    if total > size_bytes:
+                        return True
+            except (PermissionError, FileNotFoundError):
+                continue
+    return total > size_bytes
