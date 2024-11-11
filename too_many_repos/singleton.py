@@ -19,7 +19,6 @@ class Singleton:
                 if cls not in cls.__instances__:
                     try:
                         instance: Self = super().__new__(cls)
-                        instance.__init__(*args, **kwargs)
                         cls.__instances__[cls] = instance
                     except:
                         if cls in cls.__instances__:

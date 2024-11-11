@@ -20,7 +20,6 @@ from too_many_repos.tmrignore import tmrignore
 from too_many_repos.util import safe_glob, safe_is_dir, safe_is_file, unrequired_opt
 
 
-
 def ask_user_which_gist_file_belongs_to(
     file: Path, matching_gists: List[gist.Gist]
 ) -> Optional[gist.Gist]:

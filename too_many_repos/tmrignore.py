@@ -12,28 +12,105 @@ from too_many_repos.singleton import Singleton
 IgnorableType = Union[str, re.Pattern, Path, ForwardRef("Ignorable")]
 
 
-def is_regexlike(val: str) -> bool:
+def is_regexlike(string: str) -> bool:
     """Chars that can't be a file path and used often in regexps"""
-    # space because easy to match gist description without \s
-    for re_char in (
-        "*",
-        "^",
-        "$",
-        "[",
-        "]",
-        "?",
+    # Check for anchors at start or end
+    if string.startswith("^") or string.endswith("$"):
+        return True
+
+    # Check for basic regex operators
+    regex_syntax_characters = [
         "+",
-        "<",
-        ">",
-        "(",
-        ")",
-        "{",
-        "}",
+        "?",
+        "*",
+        "|",
         "\\",
-        " ",
+    ]
+    if any(op in string for op in regex_syntax_characters):
+        return True
+
+    # Check for quantifier patterns
+    quantifier_patterns = [
+        r"\{[0-9]+\}",  # {n}
+        r"\{[0-9]+,\}",  # {n,}
+        r"\{[0-9]+,[0-9]+\}",  # {n,m}
+        r"\{,[0-9]+\}",  # {,n}
+    ]
+    if any(re.search(pattern, string) for pattern in quantifier_patterns):
+        return True
+
+    # Check for character classes and groups
+    if re.search(r"\[.+]", string, re.DOTALL) or re.search(
+        r"\(.+\)", string, re.DOTALL
     ):
-        if re_char in val:
-            return True
+        return True
+
+    # Check for special character classes
+    special_classes = [
+        # digits
+        r"\d",
+        r"\D",
+        # whitespace
+        r"\s",
+        r"\S",
+        r"\n",  # newline
+        r"\r",  # carriage return
+        r"\t",  # tab
+        r"\f",  # form feed
+        r"\v",  # vertical tab
+        # word characters
+        r"\w",
+        r"\W",
+        # word boundaries
+        r"\b",
+        r"\B",
+        r"\A",
+        # string boundaries
+        r"\Z",
+        r"\z",
+    ]
+    if any(special_class in string for special_class in special_classes):
+        return True
+
+    # Check for lookahead and lookbehind assertions
+    if any(
+        pattern in string
+        for pattern in [
+            "(?=",  # Positive lookahead
+            "(?!",  # Negative lookahead
+            "(?<=",  # Positive lookbehind
+            "(?<!",  # Negative lookbehind
+        ]
+    ):
+        return True
+
+    # Check for capturing groups, named groups, and non-capturing groups
+    if re.search(
+        r"\([^?]", string
+    ):  # Basic capturing groups (but not special groups starting with '(?')
+        return True
+
+    # Check for named capturing groups and their references
+    if (
+        re.search(r"\(\?P<[^>]+>[^)]+\)", string) or "(?P=" in string
+    ):  # (?P<name>...) or (?P=name)
+        return True
+
+    # Check for non-capturing groups
+    if "(?:" in string:  # (?:...)
+        return True
+
+    # Check for comment groups
+    if "(?#" in string:  # (?#comment)
+        return True
+
+    # Check for mode-modifying groups
+    if re.search(r"\(\?[iLmsux]+[:-]", string):  # (?i), (?im), (?i:...), etc.
+        return True
+
+    # Check for backreferences
+    if re.search(r"\\[1-9][0-9]?", string):  # \1 through \99
+        return True
     return False
 
 
@@ -46,23 +123,22 @@ class Ignorable:
 
     _val: Union[re.Pattern, str]
 
-    def __new__(cls, value: IgnorableType) -> ForwardRef("Ignorable"):
+    def __new__(cls, ignorable: IgnorableType) -> ForwardRef("Ignorable"):
         """
         Normalizes the values the are passed to constructor to either str or re.Pattern.
         In case an `Ignorable` is passed to constructor, it itself is returned (avoiding recursion).
         """
-        if isinstance(value, Ignorable):
-            return value
+        if isinstance(ignorable, Ignorable):
+            return ignorable
         self = super().__new__(cls)
-        if isinstance(value, Path):
-            self._init_(str(value))
-        elif isinstance(value, re.Pattern) or not is_regexlike(value):
-            self._init_(value)
+        if isinstance(ignorable, Path):
+            self._init_(str(ignorable))
+        elif isinstance(ignorable, re.Pattern) or not is_regexlike(ignorable):
+            self._init_(ignorable)
         else:
-            self._init_(re.compile(value))
-        # if is_regexlike(value):
-        # else:
-        # 	self._init_(value)
+            compiled_pattern = re.compile(ignorable)
+            logger.info(f"Compiled regex {ignorable} -> {compiled_pattern}")
+            self._init_(compiled_pattern)
         return self
 
     def __eq__(self, other) -> bool:
@@ -81,8 +157,7 @@ class Ignorable:
 
     def _init_(self, value: Union[re.Pattern, str]) -> None:
         if isinstance(value, str):
-            # todo: this is awkward, it's because __new__ is ok with accepting a re.Pattern.
-            #  does it ever get called with re.Pattern anyway?
+            # todo: this is awkward, it's because __new__ is ok with accepting a re.Pattern. Should be normalized to one type by now.
             value.removesuffix("/")
         self._val = value
 
@@ -128,6 +203,7 @@ class TmrIgnore(Set[Ignorable], Singleton):
         # for element in iterable:
         # 	self.add(element)
         super().__init__()
+        self.exclusions = set()
         self.update_from_file(Path.home() / ".tmrignore")
         self.__cache__ = dict(items_stringed=[])
 
@@ -161,6 +237,10 @@ class TmrIgnore(Set[Ignorable], Singleton):
         return table
 
     def is_ignored(self, element: IgnorableType) -> bool:
+        for exclusion in self.exclusions:
+            # todo(bug): if both /my/path and !/my/path/subdir are in .tmrignore, the subdir WILL be ignored.
+            if exclusion.matches(element):
+                return False
         for ignorable in self:
             if ignorable.matches(element):
                 return True
@@ -177,13 +257,11 @@ class TmrIgnore(Set[Ignorable], Singleton):
                 return
             if "#" in element:
                 element = element.split("#", 1)[0].strip()
+        if element.startswith("!"):
+            self.exclusions.add(Ignorable(element[1:]))
+            return
         ignorable = Ignorable(element)
-        # ignorable_was_in_self = ignorable in self
         super().add(ignorable)
-        # if ignorable_was_in_self:
-        # 	breakpoint()
-        # if config.verbose >= 2 and not ignorable.exists():
-        # 	logger.warning(f"Does not exist: {ignorable}")
 
     def update(self, *s: Iterable[IgnorableType]) -> None:
         for element in s:

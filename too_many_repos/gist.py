@@ -195,8 +195,6 @@ class Gist:
         logger.debug(f"Gist | [b]{self.short()}[/b] populated files content")
 
 
-
-
 def get_gist_list() -> List[str]:
     """Calls `gh gist list -L 1000` to get the list of gists.
     May use cache."""
