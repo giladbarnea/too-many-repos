@@ -64,10 +64,12 @@ def diff_recursively_with_gists(
     path: Path, file_name_to_gist_files: Dict[str, List[gist.GistFile]], *, max_depth
 ) -> Dict[Path, List[gist.GistFile]]:
     """
-    Goes over files inside path and diffs them against any matching gist.
+    Goes over files in `path` and diffs them against any matching gist.
 
     Called in a multithreaded context.
     """
+    if "\n" in str(path):
+        breakpoint()  # Should be removed after a run or two (Dec 6 2024)
     if tmrignore.is_ignored(path.absolute()):
         config.verbose >= 2 and logger.warning(
             f"Main.diff_recursively_with_gists() | [b]{path}[/b]: skipping; excluded"

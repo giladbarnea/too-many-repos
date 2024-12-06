@@ -43,7 +43,10 @@ class GistFile:
         return rv
 
     def diff(self, against: Path) -> None:
-        """Populates self.diffs[against] with the `Difference` between self and given file; either 'whitespace', 'content', 'order', or False."""
+        """
+        Populates self.diffs[against] with the `Difference` between self and given file;
+        either 'whitespace', 'content', 'order', or False.
+        """
         # TODO (reuse files): write to ~/.cache/<SESSION>/ instead and check if exists before
         logger.debug(f'GistFile.diff() | {self.gist.short()} diffing "{against}"...')
 
@@ -54,9 +57,14 @@ class GistFile:
         else:
             difference = self._diff_text(against, against_lines)
 
-        config.verbose >= 2 and difference and logger.debug(
-            f'GistFile.diff() | {self.gist.short()} and "{against}" are different in {difference!r}'
-        )
+        if config.verbose >= 2:
+            if difference:
+                string = f"different in {difference!r}"
+            else:
+                string = "identical"
+            logger.debug(
+                f'GistFile.diff() | {self.gist.short()} and "{against}" are {string}'
+                )
         self.diffs[against] = difference
 
     def _is_flat_format(self) -> bool:
@@ -166,7 +174,7 @@ class Gist:
 
         Calls self._get_file_names() (GET req) which may use cache.
 
-        Called by build_filename2gistfiles() in a threaded context."""
+        Called by build_file_name_to_gist_files_parallel() in a threaded context."""
         filenames = self._get_file_names()
         for name in filenames:
             if tmrignore.is_ignored(name) and skip_ignored:
@@ -180,11 +188,11 @@ class Gist:
 
     def popuplate_files_content(self) -> None:
         """
-        For each gist_file in self.files, sets its content.
+        For each gist_file in self.files, sets its gist_file.content.
 
         Calls self._get_file_content(self, file_name) which may use cache.
 
-        Called by build_filename2gistfiles() in a threaded context.
+        Called by build_file_name_to_gist_files_parallel() in a threaded context.
         """
         for name, gist_file in self.files.items():
             content = self._get_file_content(name)
@@ -196,8 +204,10 @@ class Gist:
 
 
 def get_gist_list() -> List[str]:
-    """Calls `gh gist list -L 1000` to get the list of gists.
-    May use cache."""
+    """
+    Calls `gh gist list -L 1000` to get the list of gists.
+    May use cache.
+    """
 
     if "r" in config.cache.mode and (gist_list := cache.gist_list) is not None:
         return gist_list
@@ -212,7 +222,7 @@ def build_file_name_to_gist_files_parallel() -> Dict[str, List[GistFile]]:
     Maps (using threads) the names of the GistFiles to their actual GistFiles.
     """
     logger.info("\nGist | Getting list of gists...")
-    filename2gistfiles: Dict[str, List[GistFile]] = defaultdict(list)
+    filename_to_gist_files: Dict[str, List[GistFile]] = defaultdict(list)
     gists: List[Gist] = []
     gist_list: List[str] = get_gist_list()
 
@@ -246,7 +256,7 @@ def build_file_name_to_gist_files_parallel() -> Dict[str, List[GistFile]]:
                 future = executor.submit(gist.popuplate_files_content)
                 # if exc := future.exception():
                 # 	raise exc
-                filename2gistfiles[name].append(gistfile)
+                filename_to_gist_files[name].append(gistfile)
             config.verbose >= 2 and logger.debug(gist)
 
-    return filename2gistfiles
+    return filename_to_gist_files
